@@ -21,8 +21,14 @@ Site statique en HTML/CSS/JS pur, plus une coquille **desktop Electron** pour Li
 ```bash
 npm install
 npm start              # lance l'app en développement
-npm run dist:linux     # génère AppImage / .deb / .tar.gz dans dist/
+npm run dist:linux     # AppImage + .deb + .tar.gz dans dist/ (x64)
+./scripts/make-deb.sh x64    # .deb seul (contourne fpm, cassé sous macOS)
+./scripts/make-deb.sh arm64  # .deb ARM64 (Raspberry Pi, graviteurs…)
 ```
+
+> Les **releases GitHub** contiennent les builds prêts à l'emploi :
+> AppImage / .deb / .tar.gz en **x64 et arm64**.
+> Sur Debian/Ubuntu : `sudo dpkg -i inkvault_*.deb` — ailleurs, chmod +x l'AppImage.
 
 ## 📁 Structure
 

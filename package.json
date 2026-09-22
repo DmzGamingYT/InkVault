@@ -46,10 +46,7 @@
       "artifactName": "InkVault-${version}-linux-${arch}.AppImage"
     },
     "deb": {
-      "artifactName": "inkvault_${version}_amd64.deb"
-    },
-    "tar": {
-      "artifactName": "inkvault-${version}-linux-${arch}.tar.gz"
+      "artifactName": "inkvault-${version}-${arch}.deb"
     }
   }
 }

@@ -6,6 +6,9 @@ release/
 # Artefact de prévisualisation local (généré depuis index.html + CSS + JS)
 _preview.html
 
+# Espace local de l'éditeur Freebuff
+.freebuff/
+
 # OS / éditeurs
 .DS_Store
 *.log
