@@ -1,0 +1,13 @@
+# Dépendances / builds
+node_modules/
+dist/
+release/
+
+# Artefact de prévisualisation local (généré depuis index.html + CSS + JS)
+_preview.html
+
+# OS / éditeurs
+.DS_Store
+*.log
+.vscode/
+.idea/

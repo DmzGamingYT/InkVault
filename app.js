@@ -1,0 +1,1596 @@
+/* ══════════════════════════════════════════════
+   INKVAULT — Logique de l'application
+   ══════════════════════════════════════════════ */
+
+(() => {
+  "use strict";
+
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const DAY = 86400000;
+  const reduced = () => matchMedia("(prefers-reduced-motion:reduce)").matches;
+  const canHover = () => matchMedia("(hover:hover)").matches;
+
+  /* ─────────── ÉTAT ─────────── */
+  let db    = Store.load();                       // persistance
+  let items = db.items;
+  const state = {
+    q: "",
+    filter: db.prefs.filter || "all",
+    sort:   db.prefs.sort   || "title",
+    view:   db.prefs.view   || "grid",
+    mode:   db.prefs.mode   || "text",   // "text" = recherche classique · "vibe" = recherche par ambiance
+    skin:   db.prefs.skin   || localStorage.getItem("ink-skin") ||
+            (localStorage.getItem("ink-theme") === "light" ? "claire" : "gotham"),
+    sbBudget: db.prefs.sb   || 50,        // budget du Smart Buy (€)
+    vibe:   null,                         // dernier résultat du moteur d'ambiance
+    insOffset: 0,                         // 0 = mois en cours
+    openId: null
+  };
+
+  function persist() {
+    db.items = items;
+    db.prefs = {
+      filter: state.filter || "all",
+      sort:   state.sort   || "title",
+      view:   state.view   || "grid",
+      mode:   state.mode   || "text",
+      skin:   state.skin   || "gotham",
+      sb:     state.sbBudget || 50
+    };
+    Store.save(db);
+  }
+
+  function logSession(n = 1) {
+    const d = Store.iso(new Date());
+    db.activity[d] = (db.activity[d] || 0) + n;
+  }
+
+  /* ═══════════ ÉCRAN DE CHARGEMENT ═══════════ */
+  function runLoader() {
+    const bar = $(".loader__bar span"), pct = $(".loader__pct"), loader = $("#loader");
+    let p = 0;
+    const t = setInterval(() => {
+      p += Math.random() * 17 + 6;
+      if (p >= 100) { p = 100; clearInterval(t); setTimeout(() => loader.classList.add("is-done"), 420); }
+      bar.style.width = p + "%";
+      pct.textContent = Math.floor(p) + "%";
+    }, 130);
+  }
+
+  /* ═══════════ GLOW CURSEUR ═══════════ */
+  function initCursor() {
+    if (!canHover()) return;
+    const glow = $("#cursorGlow");
+    let x = innerWidth / 2, y = innerHeight / 2, cx = x, cy = y;
+    addEventListener("mousemove", e => { x = e.clientX; y = e.clientY; });
+    (function loop() {
+      cx += (x - cx) * .12; cy += (y - cy) * .12;
+      glow.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`;
+      requestAnimationFrame(loop);
+    })();
+  }
+
+  /* ═══════════ TRANSITION DE SECTION (VOILE) ═══════════ */
+  function goTo(id) {
+    const t = $("#" + id); if (!t) return;
+    const veil = $("#veil");
+    if (reduced() || !veil) { scrollTo({ top: t.offsetTop - 60, behavior: "auto" }); return; }
+    veil.classList.remove("is-on");
+    void veil.offsetWidth;                       // relance l'animation
+    veil.classList.add("is-on");
+    setTimeout(() => scrollTo({ top: t.offsetTop - 60, behavior: "auto" }), 330);
+    setTimeout(() => veil.classList.remove("is-on"), 840);
+  }
+
+  /* ═══════════ NAVIGATION ═══════════ */
+  function initNav() {
+    const nav = $("#nav");
+    addEventListener("scroll", () => nav.classList.toggle("is-stuck", scrollY > 40), { passive: true });
+
+    $$("[data-scroll]").forEach(el =>
+      el.addEventListener("click", () => goTo(el.dataset.scroll)));
+
+    $$(".nav__link").forEach(a => a.addEventListener("click", e => {
+      e.preventDefault();
+      goTo(a.getAttribute("href").slice(1));
+    }));
+
+    const links = $$(".nav__link");
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(en => {
+        if (!en.isIntersecting) return;
+        links.forEach(l => l.classList.toggle("is-active", l.dataset.nav === en.target.id));
+      });
+    }, { rootMargin: "-45% 0px -50% 0px" });
+    ["hero", "collection", "stats", "reading", "add"].forEach(id => { const s = $("#" + id); if (s) io.observe(s); });
+
+    initSkins();
+  }
+
+  /* ═══════════ THÈMES GRAPHIQUES (SKINS) ═══════════ */
+  const SKINS = ["ink", "vintage", "gotham", "batman", "onepiece", "claire"];
+  const DARK_SKINS = ["gotham", "batman"];
+
+  function applySkin(name, save = true) {
+    const skin = SKINS.includes(name) ? name : "gotham";
+    state.skin = skin;
+    const root = document.documentElement;
+    root.dataset.skin = skin;
+    // Les peaux claires s'appuient sur la base « papier » de styles.css
+    if (DARK_SKINS.includes(skin)) root.removeAttribute("data-theme");
+    else root.dataset.theme = "light";
+    try { localStorage.setItem("ink-skin", skin); } catch (e) {}
+    $$("#skinPick [data-skin]").forEach(b =>
+      b.classList.toggle("is-active", b.dataset.skin === skin));
+    if (save) persist();
+  }
+
+  function initSkins() {
+    applySkin(state.skin, false);
+
+    const pick = $("#skinPick"), toggle = $("#themeToggle");
+    const setOpen = on => {
+      pick.hidden = !on;
+      toggle.setAttribute("aria-expanded", String(on));
+    };
+
+    toggle.addEventListener("click", e => { e.stopPropagation(); setOpen(pick.hidden); });
+    pick.addEventListener("click", e => {
+      const b = e.target.closest("[data-skin]"); if (!b) return;
+      applySkin(b.dataset.skin);
+      setOpen(false);
+      showToast(`🎨  Thème « ${b.querySelector("b").textContent} » activé.`);
+    });
+    document.addEventListener("click", e => {
+      if (!pick.hidden && !e.target.closest(".skinwrap")) setOpen(false);
+    });
+    addEventListener("keydown", e => {
+      if (e.key === "Escape" && !pick.hidden) setOpen(false);
+    });
+  }
+
+  /* ═══════════ PARALLAXE DU HERO ═══════════ */
+  function initParallax() {
+    const stack = $("#heroStack");
+    if (!stack || reduced()) return;
+    let ticking = false;
+    const apply = () => {
+      const y = Math.min(scrollY, innerHeight);
+      stack.style.transform = `translate3d(0, ${y * .16}px, 0)`;
+      stack.style.opacity = String(Math.max(0, 1 - y / (innerHeight * .95)));
+      ticking = false;
+    };
+    addEventListener("scroll", () => {
+      if (!ticking) { ticking = true; requestAnimationFrame(apply); }
+    }, { passive: true });
+    apply();
+  }
+
+  /* ═══════════ PILE FLOTTANTE DU HERO ═══════════ */
+  function buildHeroStack() {
+    const stack = $("#heroStack");
+    if (!stack) return;
+    const picks = [...items].sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0) || b.rating - a.rating).slice(0, 4);
+    const layout = [
+      { t: 30,  l: 6,  r: "-11deg", d: "0s",   z: 1 },
+      { t: 96,  l: 78, r: "9deg",   d: "1.1s", z: 2 },
+      { t: 172, l: 2,  r: "-4deg",  d: "2.2s", z: 3 },
+      { t: 236, l: 72, r: "13deg",  d: "3.3s", z: 4 }
+    ];
+    stack.innerHTML = "";
+    picks.forEach((it, i) => {
+      const L = layout[i];
+      const el = document.createElement("div");
+      el.className = "stack-card";
+      el.style.cssText =
+        `top:${L.t}px; left:${L.l}%; --rot:${L.r}; z-index:${L.z}; ` +
+        `background:linear-gradient(150deg, ${it.color}, ${shade(it.color, -38)}); ` +
+        `animation-delay:${L.d}; transform:rotate(${L.r});`;
+      el.innerHTML =
+        `<div class="stack-card__spine"></div>` +
+        `<div class="stack-card__scrim"></div>` +
+        `<div class="stack-card__t">${esc(it.title)}</div>` +
+        `<div class="stack-card__a">${esc(it.author)}</div>`;
+      Covers.paint(el, it);
+      el.addEventListener("click", () => openModal(it.id));
+      stack.appendChild(el);
+    });
+  }
+
+  /* ═══════════ UTILITAIRES ═══════════ */
+  const progress = it => it.volumes ? Math.round((it.read / it.volumes) * 100) : 0;
+
+  function shade(hex, amt) {
+    const c = hex.replace("#", "");
+    const n = parseInt(c.length === 3 ? c.split("").map(x => x + x).join("") : c, 16);
+    const clamp = v => Math.max(0, Math.min(255, v));
+    const r = clamp((n >> 16) + amt), g = clamp(((n >> 8) & 255) + amt), b = clamp((n & 255) + amt);
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
+  }
+
+  const esc = s => String(s).replace(/[&<>"']/g, m =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+
+  function starsHTML(r) {
+    let out = "";
+    for (let i = 1; i <= 5; i++) out += `<span class="star ${i <= Math.round(r) ? "is-on" : ""}">★</span>`;
+    return `<div class="stars">${out}</div>`;
+  }
+
+  const fmtDate = d => new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(d);
+
+  function countTo(el, target, dur = 1400, dec = 0) {
+    if (!el) return;
+    const start = performance.now(), from = parseFloat(el.dataset.cur || 0);
+    function step(now) {
+      const p = Math.min((now - start) / dur, 1);
+      const e = 1 - Math.pow(1 - p, 3);
+      const v = from + (target - from) * e;
+      el.textContent = dec ? v.toFixed(dec) : Math.round(v);
+      if (p < 1) requestAnimationFrame(step); else el.dataset.cur = target;
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* ═══════════ MÉTRIQUES ═══════════ */
+  function renderMetrics() {
+    const total   = items.length;
+    const done    = items.filter(i => i.status === "Terminé").length;
+    const authors = new Set(items.map(i => i.author)).size;
+    const rated   = items.filter(i => i.rating > 0);
+    const avg     = rated.length ? rated.reduce((s, i) => s + i.rating, 0) / rated.length : 0;
+    const favs    = items.filter(i => i.fav).length;
+
+    countTo($("#mTotal"), total);
+    countTo($("#mRead"), done);
+    countTo($("#mAuthors"), authors);
+    countTo($("#mAvg"), avg, 1200, 1);
+    $("#heroCount").textContent = total;
+
+    const chip = $('#filters .chip[data-filter="__fav"]');
+    if (chip) chip.innerHTML = `♥ Favoris <b>${favs}</b>`;
+  }
+
+  /* ═══════════ GRILLE ═══════════ */
+  function getFiltered() {
+    const okF = it =>
+      state.filter === "all"   ? true :
+      state.filter === "__fav" ? !!it.fav :
+      it.format === state.filter;
+
+    /* ── Recherche par ambiance : classement par affinité ── */
+    if (state.mode === "vibe") {
+      const res = AI.vibe(state.q, items.filter(okF));
+      state.vibe = res;
+      return res.matches.map(m => m.item);
+    }
+    state.vibe = null;
+
+    const q = state.q.trim().toLowerCase();
+    const out = items.filter(it => {
+      const okQ = !q || it.title.toLowerCase().includes(q) || it.author.toLowerCase().includes(q);
+      return okF(it) && okQ;
+    });
+    const by = {
+      title:    (a, b) => a.title.localeCompare(b.title),
+      rating:   (a, b) => b.rating - a.rating,
+      year:     (a, b) => b.year - a.year,
+      progress: (a, b) => progress(b) - progress(a),
+      fav:      (a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0) || a.title.localeCompare(b.title),
+      added:    (a, b) => String(b.addedAt || "").localeCompare(String(a.addedAt || ""))
+    };
+    return out.sort(by[state.sort] || by.title);
+  }
+
+  function bindTilt(card) {
+    if (!canHover() || reduced()) return;
+    card.addEventListener("pointermove", e => {
+      if (e.pointerType === "touch") return;
+      const r = card.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width - .5;
+      const py = (e.clientY - r.top) / r.height - .5;
+      card.style.setProperty("--ry", (px * 9).toFixed(2) + "deg");
+      card.style.setProperty("--rx", (-py * 9).toFixed(2) + "deg");
+      card.style.setProperty("--mx", ((px + .5) * 100).toFixed(1) + "%");
+      card.style.setProperty("--my", ((py + .5) * 100).toFixed(1) + "%");
+    });
+    const reset = () => {
+      card.style.removeProperty("--rx");
+      card.style.removeProperty("--ry");
+      card.style.removeProperty("--mx");
+      card.style.removeProperty("--my");
+    };
+    card.addEventListener("pointerleave", reset);
+    card.addEventListener("pointercancel", reset);
+  }
+
+  function renderGrid(animate = true) {
+    const grid = $("#grid"), empty = $("#empty");
+    const list = getFiltered();
+    const vm = state.mode === "vibe" && state.vibe
+      ? new Map(state.vibe.matches.map(m => [m.item.id, m]))
+      : null;
+
+    $("#resultCount").textContent = list.length;
+    empty.hidden = list.length > 0;
+    grid.innerHTML = "";
+
+    list.forEach((it, i) => {
+      const p = progress(it);
+      const mv = vm ? vm.get(it.id) : null;
+      const matchRow = mv && mv.score > 0 ? `
+          <div class="card__match">
+            <span class="card__pct">${mv.pct}%</span>
+            <span class="card__why" title="${esc(mv.why.join(" · "))}">${esc(mv.why.length ? mv.why.join(" · ") : "mots-clés de ta recherche")}</span>
+          </div>` : "";
+      const card = document.createElement("article");
+      card.className = "card" + (animate ? " card--enter" : "");
+      card.style.setProperty("--cd", Math.min(i, 14) * 55 + "ms");
+      card.dataset.id = it.id;
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", `${it.title} — ${it.author}`);
+
+      card.innerHTML = `
+        <button class="card__open" aria-label="Ouvrir la fiche">↗</button>
+        <button class="fav${it.fav ? " is-on" : ""}" data-fav="${it.id}"
+                aria-pressed="${!!it.fav}" aria-label="Favori">♥</button>
+        <div class="card__cover" style="background:linear-gradient(155deg, ${it.color}, ${shade(it.color, -46)});">
+          <div class="cover-scrim"></div>
+          <span class="card__format">${esc(it.format)}</span>
+          <div>
+            <div class="card__title">${esc(it.title)}</div>
+            <div class="card__author">${esc(it.author)}</div>
+          </div>
+        </div>
+        <div class="card__body">
+          ${matchRow}
+          <div class="card__info">
+            <div class="card__info-title">${esc(it.title)}</div>
+            <div class="card__info-meta"><button type="button" class="lnk-au" data-author="${esc(it.author)}">${esc(it.author)}</button> · ${it.year} · ${esc(it.format)}</div>
+          </div>
+          <div class="card__row">
+            <div class="card__meta">
+              ${starsHTML(it.rating)}
+              ${it.review ? `<span class="quote-mark" title="${esc(it.review)}">❝</span>` : ""}
+            </div>
+            <span class="status" data-s="${esc(it.status)}">${esc(it.status)}</span>
+          </div>
+          <div class="progress"><i style="width:0%"></i></div>
+          <div class="card__foot">
+            <span><b>${it.read}</b>/${it.volumes} tomes</span>
+            <span>${p}%</span>
+          </div>
+        </div>`;
+
+      card.addEventListener("click", e => {
+        if (e.target.closest("button")) return;
+        openModal(it.id);
+      });
+      card.querySelector(".card__open").addEventListener("click", e => {
+        e.stopPropagation(); openModal(it.id);
+      });
+      card.querySelector(".fav").addEventListener("click", e => {
+        e.stopPropagation(); toggleFav(it.id);
+      });
+
+      if (animate) {
+        card.addEventListener("animationend", () => card.classList.remove("card--enter"), { once: true });
+      }
+
+      grid.appendChild(card);
+      Covers.paint(card.querySelector(".card__cover"), it);
+      bindTilt(card);
+
+      requestAnimationFrame(() => setTimeout(() => {
+        const bar = card.querySelector(".progress i");
+        if (bar) bar.style.width = p + "%";
+      }, animate ? Math.min(i, 14) * 55 + 340 : 60));
+    });
+
+    grid.classList.toggle("is-list", state.view === "list");
+    if (state.mode === "vibe") paintVibe();
+  }
+
+  /* ═══════════ RECHERCHE PAR AMBIANCE (MOTEUR LOCAL) ═══════════ */
+  function paintVibe() {
+    const res = state.vibe;
+    const tags = $("#vibeTags"), count = $("#vibeCount");
+    if (!tags || !count) return;
+
+    $$("#vibeExamples .chip--ex").forEach(c =>
+      c.classList.toggle("is-active", c.dataset.q.trim() === state.q.trim()));
+
+    if (!res || !res.hasSignal) {
+      tags.innerHTML = `<span class="vibe__tag"><i>attente</i>décris une ambiance pour activer le classement par affinité</span>`;
+      count.innerHTML = "";
+      return;
+    }
+
+    let d = 0;
+    const chip = (g, label) =>
+      `<span class="vibe__tag" style="animation-delay:${(d++) * 55}ms"><i>${esc(g)}</i>${esc(label)}</span>`;
+
+    tags.innerHTML =
+      res.facets.map(f => chip(f.g, f.label)).join("") +
+      res.toks.map(w => chip("mot", w)).join("") +
+      res.negs.map(w => chip("écarté", w)).join("");
+
+    const hits = res.matches.filter(m => m.score > 0).length;
+    count.innerHTML = res.facets.length || res.toks.length
+      ? `<b>${hits}</b> <em>correspondance${hits > 1 ? "s" : ""}</em>`
+      : "";
+  }
+
+  function setVibeMode(on) {
+    state.mode = on ? "vibe" : "text";
+    persist();
+    syncVibeChrome();
+    renderGrid();
+  }
+
+  function syncVibeChrome() {
+    const on = state.mode === "vibe";
+    const t = $("#vibeToggle"), p = $("#vibePanel"), input = $("#search");
+    if (t) { t.classList.toggle("is-active", on); t.setAttribute("aria-pressed", String(on)); }
+    if (p) p.hidden = !on;
+    if (input) input.placeholder = on
+      ? "Décris une ambiance : « un seinen sombre, de l'encre détaillée… »"
+      : "Rechercher un titre, un auteur…";
+    if (!on) {
+      state.vibe = null;
+      $("#vibeTags").innerHTML = "";
+      $("#vibeCount").innerHTML = "";
+    }
+  }
+
+  function initVibe() {
+    $("#vibeToggle").addEventListener("click", () => setVibeMode(state.mode !== "vibe"));
+
+    $("#vibeExamples").addEventListener("click", e => {
+      const b = e.target.closest(".chip--ex"); if (!b) return;
+      const q = b.dataset.q;
+      $("#search").value = q;
+      state.q = q;
+      if (state.mode !== "vibe") setVibeMode(true);
+      else { syncVibeChrome(); renderGrid(); }
+      $("#grid").scrollIntoView({ block: "start", behavior: reduced() ? "auto" : "smooth" });
+    });
+
+    syncVibeChrome();
+  }
+
+  function jumpToVibe(q) {
+    $("#search").value = q;
+    state.q = q;
+    if (state.mode !== "vibe") setVibeMode(true);
+    else { syncVibeChrome(); renderGrid(); }
+    goTo("collection");
+  }
+
+  /* ═══════════ FAVORIS ═══════════ */
+  function toggleFav(id) {
+    const it = items.find(x => x.id === id); if (!it) return;
+    it.fav = !it.fav;
+    persist();
+
+    const card = $(`.card[data-id="${id}"] .fav`);
+    if (card) {
+      card.classList.toggle("is-on", it.fav);
+      card.setAttribute("aria-pressed", String(it.fav));
+      if (it.fav && !reduced()) {
+        card.animate(
+          [{ transform: "scale(1)" }, { transform: "scale(1.45)" }, { transform: "scale(1)" }],
+          { duration: 420, easing: "cubic-bezier(.34,1.56,.64,1)" }
+        );
+      }
+    }
+    if (state.filter === "__fav") renderGrid(false);
+    renderMetrics();
+    if (state.openId === id) syncModalFav(it);
+  }
+
+  function syncModalFav(it) {
+    const b = $("#mFav");
+    if (!b) return;
+    b.classList.toggle("is-on", !!it.fav);
+    b.setAttribute("aria-pressed", String(!!it.fav));
+  }
+
+  /* ═══════════ BARRE D'OUTILS ═══════════ */
+  function initToolbar() {
+    $("#search").addEventListener("input", e => { state.q = e.target.value; renderGrid(false); });
+
+    $$("#filters .chip[data-filter]").forEach(c => c.addEventListener("click", () => {
+      if (!c.dataset.filter) return;
+      $$("#filters .chip[data-filter]").forEach(x => x.classList.remove("is-active"));
+      c.classList.add("is-active");
+      state.filter = c.dataset.filter;
+      persist();
+      renderGrid();
+    }));
+
+    // restaure la préférence
+    $$("#filters .chip[data-filter]").forEach(x =>
+      x.classList.toggle("is-active", x.dataset.filter === state.filter));
+    $("#sort").value = state.sort;
+    $$(".view-btn").forEach(b => b.classList.toggle("is-active", b.dataset.view === state.view));
+
+    $("#sort").addEventListener("change", e => { state.sort = e.target.value; persist(); renderGrid(); });
+
+    $$(".view-btn").forEach(b => b.addEventListener("click", () => {
+      $$(".view-btn").forEach(x => x.classList.remove("is-active"));
+      b.classList.add("is-active");
+      state.view = b.dataset.view;
+      persist();
+      renderGrid(false);
+    }));
+
+    $("#resetFilters").addEventListener("click", resetFilters);
+    $("#btnExport").addEventListener("click", exportJSON);
+    $("#btnImport").addEventListener("click", () => $("#fileImport").click());
+    $("#fileImport").addEventListener("change", importJSON);
+
+    addEventListener("keydown", e => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        $("#search").focus();
+        $("#search").scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      if (e.key === "Escape") {
+        if (!closeAuthor()) closeModal();
+      }
+    });
+
+    initGridKeys();
+  }
+
+  function initGridKeys() {
+    const grid = $("#grid");
+    grid.addEventListener("keydown", e => {
+      const card = e.target.closest(".card");
+      if (!card || e.target !== card) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault(); openModal(+card.dataset.id); return;
+      }
+      const keys = ["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"];
+      if (!keys.includes(e.key)) return;
+      e.preventDefault();
+      const cards = $$(".card", grid);
+      const i = cards.indexOf(card);
+      const first = cards[0];
+      const step = state.view === "list"
+        ? 1
+        : Math.max(1, Math.round(grid.clientWidth / (first ? first.offsetWidth + 26 : 240)));
+      const n = e.key === "ArrowRight" ? i + 1
+              : e.key === "ArrowLeft"  ? i - 1
+              : e.key === "ArrowDown"  ? i + step
+              : i - step;
+      if (cards[n]) { cards[n].focus(); cards[n].scrollIntoView({ block: "nearest" }); }
+    });
+  }
+
+  function resetFilters() {
+    state.q = ""; state.filter = "all";
+    $("#search").value = "";
+    $$("#filters .chip[data-filter]").forEach(x => x.classList.toggle("is-active", x.dataset.filter === "all"));
+    persist();
+    renderGrid();
+  }
+
+  /* ═══════════ EXPORT / IMPORT ═══════════ */
+  function exportJSON() {
+    const payload = {
+      app: "inkvault", v: 1,
+      exportedAt: new Date().toISOString(),
+      items, activity: db.activity, goal: db.goal, prefs: db.prefs
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `inkvault-${Store.iso(new Date())}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast("💾  Export terminé — " + items.length + " ouvrages.");
+  }
+
+  function importJSON(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      let data;
+      try { data = JSON.parse(fr.result); }
+      catch (err) { showToast("⚠️  Fichier JSON illisible."); return; }
+
+      if (!Store.valid(data)) { showToast("⚠️  Ce fichier n'est pas une sauvegarde InkVault valide."); return; }
+      if (!confirm(`Remplacer la bibliothèque actuelle par celle du fichier (${data.items.length} ouvrages) ?`)) return;
+
+      db = Store.normalize(data);
+      items = db.items;
+      state.filter = db.prefs.filter || "all";
+      state.sort   = db.prefs.sort   || "title";
+      state.view   = db.prefs.view   || "grid";
+      state.mode   = db.prefs.mode   || "text";
+      state.skin   = db.prefs.skin   || state.skin;
+      state.sbBudget = db.prefs.sb   || state.sbBudget;
+      persist();
+      applySkin(state.skin, false);
+      $("#sbBudget").value = state.sbBudget;
+      syncVibeChrome();
+      $("#sort").value = state.sort;
+      $$("#filters .chip[data-filter]").forEach(x => x.classList.toggle("is-active", x.dataset.filter === state.filter));
+      $$(".view-btn").forEach(b => b.classList.toggle("is-active", b.dataset.view === state.view));
+
+      buildHeroStack();
+      refreshAll();
+      showToast("📂  Import réussi — bibliothèque remplacée.");
+    };
+    fr.readAsText(file);
+  }
+
+  /* ═══════════ STATISTIQUES ═══════════ */
+  function renderStats() {
+    // Barres formats
+    const formats = ["Manga", "Comic", "Graphic Novel", "Webtoon"];
+    const counts  = formats.map(f => items.filter(i => i.format === f).length);
+    const max     = Math.max(...counts, 1);
+    $("#barsGenre").innerHTML = formats.map((f, i) => `
+      <div class="bar">
+        <div class="bar__top"><span>${f}</span><b>${counts[i]}</b></div>
+        <div class="bar__track"><div class="bar__fill" data-w="${(counts[i] / max) * 100}"></div></div>
+      </div>`).join("");
+
+    // Anneau
+    const pctDone = items.length ? Math.round(items.filter(i => i.status === "Terminé").length / items.length * 100) : 0;
+    const circ = 2 * Math.PI * 52;
+    const ring = $("#ringFill");
+    ring.style.strokeDasharray = circ;
+    ring.style.strokeDashoffset = circ;
+    setTimeout(() => {
+      ring.style.strokeDashoffset = circ - (circ * pctDone / 100);
+      countTo($("#ringPct"), pctDone, 1500);
+    }, 350);
+
+    // Auteurs
+    const byAuthor = {};
+    items.forEach(i => byAuthor[i.author] = (byAuthor[i.author] || 0) + 1);
+    const top = Object.entries(byAuthor).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const maxA = Math.max(...top.map(t => t[1]), 1);
+    $("#authorsList").innerHTML = top.map(([name, n], i) => {
+      const initials = name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+      const col = PALETTE[i % PALETTE.length];
+      return `<li>
+        <span class="ava" style="background:${col}">${esc(initials)}</span>
+        <span><span class="a-name"><button type="button" class="lnk-au" data-author="${esc(name)}">${esc(name)}</button></span><br><span class="a-count">${n} ouvrage${n > 1 ? "s" : ""}</span></span>
+        <span class="a-bar">${Math.round(n / maxA * 100)}%</span>
+      </li>`;
+    }).join("");
+
+    // Sparkline années
+    const byYear = {};
+    items.forEach(i => byYear[i.year] = (byYear[i.year] || 0) + 1);
+    const years = Object.keys(byYear).sort().slice(-8);
+    const maxY  = Math.max(...years.map(y => byYear[y]), 1);
+    $("#spark").innerHTML = years.map(y => `
+      <div class="spark__col">
+        <div class="spark__bar" data-h="${(byYear[y] / maxY) * 100}">
+          <span class="spark__val">${byYear[y]}</span>
+        </div>
+        <span class="spark__lbl">${y}</span>
+      </div>`).join("");
+
+    renderChallenge();
+    renderHeatmap();
+    renderInsights();
+    renderSmartBuy();
+  }
+
+  /* ─── Challenge annuel ─── */
+  function renderChallenge() {
+    const year = new Date().getFullYear();
+    const done = items.filter(i => i.finishedAt && +i.finishedAt.slice(0, 4) === year).length;
+    const goal = db.goal || 40;
+    const pct  = Math.min(100, Math.round(done / goal * 100));
+
+    $("#chYear").textContent = year;
+    const goalEl = $("#chGoal");
+    if (document.activeElement !== goalEl) goalEl.value = goal;
+
+    const doneEl = $("#chDone");
+    doneEl.dataset.cur = doneEl.dataset.cur || 0;
+    setTimeout(() => countTo(doneEl, done, 1100), 150);
+
+    const bar = $("#chBar");
+    bar.dataset.w = pct;
+    bar.style.width = "0%";
+
+    $("#chLeft").textContent = done >= goal
+      ? "Objectif atteint 🎉"
+      : `${goal - done} restant${goal - done > 1 ? "s" : ""}`;
+
+    const jan1 = new Date(year, 0, 1).getTime();
+    const months = Math.max(1, (Date.now() - jan1) / DAY / 30.44);
+    $("#chPace").textContent = `≈ ${(done / months).toFixed(1)}/mois`;
+  }
+
+  /* ─── Heatmap d'activité ─── */
+  function renderHeatmap() {
+    const wrap = $("#heatmap"), months = $("#hmMonths");
+    if (!wrap) return;
+
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const dow = (today.getDay() + 6) % 7;                 // lundi = 0
+    const monday = new Date(today.getTime() - dow * DAY);
+    const start  = new Date(monday.getTime() - 25 * 7 * DAY);
+
+    const level = n => !n ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 6 ? 3 : 4;
+
+    let html = "", mhtml = "", prevMonth = -1;
+    const cells = [];
+
+    for (let w = 0; w < 26; w++) {
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(start.getTime() + (w * 7 + d) * DAY);
+        const key  = Store.iso(date);
+        const n    = db.activity[key] || 0;
+        const lv   = level(n);
+        cells.push({ date, n, lv, key, isFuture: date.getTime() > today.getTime() });
+      }
+      const firstDay = new Date(start.getTime() + w * 7 * DAY);
+      const m = firstDay.getMonth();
+      mhtml += `<span>${m !== prevMonth && firstDay.getDate() <= 7
+        ? new Intl.DateTimeFormat("fr-FR", { month: "short" }).format(firstDay).replace(".", "")
+        : ""}</span>`;
+      prevMonth = m;
+    }
+
+    cells.forEach((c, i) => {
+      const label = c.isFuture
+        ? ""
+        : `${fmtDate(c.date)} — ${c.n} session${c.n > 1 ? "s" : ""}`;
+      html += `<i class="hm-cell${c.n ? " l" + c.lv : ""}${c.n ? "" : " is-zero"}"
+                  data-lv="${c.lv}" style="--d:${Math.min(i, 300) * 3}ms"
+                  title="${esc(label)}"></i>`;
+    });
+
+    wrap.innerHTML = html;
+    months.innerHTML = mhtml;
+
+    // série en cours
+    let streak = 0, cursor = new Date(today);
+    if (!(db.activity[Store.iso(cursor)])) cursor = new Date(today.getTime() - DAY);
+    while (db.activity[Store.iso(cursor)]) { streak++; cursor = new Date(cursor.getTime() - DAY); }
+    $("#hmStreak").textContent = streak > 0 ? `🔥 ${streak} jour${streak > 1 ? "s" : ""} d'affilée` : "—";
+
+    const total = Object.values(db.activity).reduce((s, n) => s + n, 0);
+    $("#hmTotal").textContent = `${total} sessions`;
+  }
+
+  let statsIO = null;
+  function observeStats() {
+    if (statsIO) statsIO.disconnect();
+    statsIO = new IntersectionObserver(entries => {
+      entries.forEach(en => {
+        if (!en.isIntersecting) return;
+        const c = en.target;
+        c.classList.add("is-in");
+        $$(".bar__fill", c).forEach((b, i) => setTimeout(() => b.style.width = b.dataset.w + "%", i * 110));
+        $$(".spark__bar", c).forEach((b, i) => setTimeout(() => b.style.height = Math.max(b.dataset.h, 6) + "%", i * 80));
+        $$(".hm-cell", c).forEach(el => el.classList.add("is-in"));
+        const cb = c.querySelector("#chBar");
+        if (cb) setTimeout(() => cb.style.width = cb.dataset.w + "%", 220);
+        $$(".ins__fill", c).forEach((b, i) => setTimeout(() => b.style.width = b.dataset.w + "%", 180 + i * 90));
+        statsIO.unobserve(c);
+      });
+    }, { threshold: .15 });
+    $$(".stat-card").forEach(c => statsIO.observe(c));
+  }
+
+  /* ═══════════ FORMULAIRE ═══════════ */
+  function initForm() {
+    const sw = $("#swatches"), colorInput = $("#colorInput");
+    sw.innerHTML = PALETTE.map(c =>
+      `<div class="swatch${c === colorInput.value ? " is-active" : ""}" data-c="${c}" style="background:${c}; color:${c}"></div>`
+    ).join("");
+    sw.addEventListener("click", e => {
+      const s = e.target.closest(".swatch"); if (!s) return;
+      $$(".swatch", sw).forEach(x => x.classList.remove("is-active"));
+      s.classList.add("is-active");
+      colorInput.value = s.dataset.c;
+    });
+
+    const rating = $('input[name="rating"]'), out = $("#rateOut");
+    const paint = () => {
+      out.textContent = rating.value;
+      const p = (rating.value - rating.min) / (rating.max - rating.min) * 100;
+      rating.style.background = `linear-gradient(90deg, var(--accent) ${p}%, var(--surface-2) ${p}%)`;
+    };
+    rating.addEventListener("input", paint); paint();
+
+    $("#form").addEventListener("submit", e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const title  = (f.get("title")  || "").toString().trim();
+      const author = (f.get("author") || "").toString().trim();
+      if (!title || !author) { showToast("⚠️  Le titre et l'auteur sont obligatoires."); return; }
+
+      const volumes = Math.max(1, parseInt(f.get("volumes")) || 1);
+      const status  = f.get("status");
+      const item = {
+        id: Date.now(),
+        title, author,
+        format: f.get("format"),
+        year: parseInt(f.get("year")) || new Date().getFullYear(),
+        volumes,
+        read: status === "Terminé" ? volumes : 0,
+        rating: parseFloat(f.get("rating")) || 0,
+        status,
+        color: f.get("color") || "#7c5cff",
+        desc: "Ajouté récemment à ta bibliothèque InkVault.",
+        fav: false,
+        review: "",
+        addedAt: Store.iso(new Date()),
+        finishedAt: status === "Terminé" ? Store.iso(new Date()) : null
+      };
+      if (item.read) logSession(2);
+
+      items.unshift(item);
+      persist();
+      refreshAll();
+      showToast(`✅  « ${title} » ajouté à la bibliothèque !`);
+
+      e.target.reset();
+      colorInput.value = "#7c5cff";
+      $$(".swatch", sw).forEach(x => x.classList.toggle("is-active", x.dataset.c === "#7c5cff"));
+      paint();
+      setTimeout(() => goTo("collection"), 550);
+    });
+  }
+
+  let toastTimer;
+  function showToast(msg) {
+    const t = $("#toast");
+    t.textContent = msg;
+    t.classList.add("is-on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("is-on"), 4000);
+  }
+
+  /* ═══════════ FICHE AUTEUR 360° — RÉSEAU ARTISTIQUE ═══════════ */
+  const amodal = $("#amodal");
+
+  function openAuthor(name) {
+    const d = AI.author(name, items);
+
+    $("#amAva").textContent = name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+    $("#amName").textContent = d.name;
+    $("#amRoles").innerHTML = d.roles.map(r => `<span class="am__role">${esc(r)}</span>`).join("") +
+      (d.favs ? `<span class="am__role">♥ ${d.favs} favori${d.favs > 1 ? "s" : ""}</span>` : "") +
+      (d.avg ? `<span class="am__role">★ ${d.avg.toFixed(1)}/5 dans ta collection</span>` : "");
+
+    $("#amBio").textContent = d.bio;
+    $("#amTags").innerHTML = d.themes.length
+      ? d.themes.map(t => `<span class="am__tag">${esc(t)}</span>`).join("")
+      : `<span class="am__tag">—</span>`;
+    const st = $("#amStyle");
+    st.textContent = d.style || "";
+    st.hidden = !d.style;
+
+    /* Jauge de bibliographie */
+    const g = $("#amGauge");
+    g.style.width = "0%";
+    $("#amGaugeVal").textContent = d.gauge.pct + "%";
+    $("#amGaugeNote").textContent = d.gauge.mode === "biblio"
+      ? `Tu possèdes ${d.gauge.pct}% de la bibliographie majeure de ${d.name} — ` +
+        `${d.gauge.owned} œuvre${d.gauge.owned > 1 ? "s" : ""} sur ${d.gauge.total} repérée${d.gauge.total > 1 ? "s" : ""} dans ta collection.`
+      : `Bibliographie complète non documentée pour l'instant — ${d.gauge.owned} œuvre(s) en main, ` +
+        `${d.gauge.pct}% terminée(s).`;
+    setTimeout(() => { g.style.width = d.gauge.pct + "%"; }, 140);
+
+    /* Œuvres dans la collection + rôles */
+    $("#amWorks").innerHTML = d.works.length
+      ? d.works.map(w => `
+        <li>
+          <div class="am__work-b">
+            <span class="am__work-t">${esc(w.title)}</span>
+            <span class="am__work-r">${esc(w.role)}</span>
+          </div>
+          <span class="am__work-s">${w.year} · ${w.read}/${w.volumes} · ${esc(w.status)}</span>
+          <button class="am__work-open" data-open="${w.id}" type="button" title="Ouvrir la fiche">↗</button>
+        </li>`).join("")
+      : `<li><span class="am__work-s">Aucune œuvre de ${esc(d.name)} dans ta bibliothèque — pour l'instant.</span></li>`;
+
+    /* Auteurs proches (cliquables s'ils sont en base) */
+    $("#amSimilar").innerHTML = d.similar.length
+      ? d.similar.map(s => s.inLib
+          ? `<button class="am__tag am__tag--in" data-author="${esc(s.name)}" type="button">${esc(s.name)} ↗</button>`
+          : `<span class="am__tag">${esc(s.name)}</span>`).join("")
+      : `<span class="am__tag">Rien de comparable en base pour l'instant.</span>`;
+
+    /* Binômes célèbres */
+    $("#amDuos").innerHTML = d.duos.length
+      ? d.duos.map(x =>
+          `<span class="am__tag am__tag--duo"><span class="am__duo-n">${esc(x.with)}</span>` +
+          `<span class="am__duo-w">${esc(x.note)}</span></span>`).join("")
+      : `<span class="am__tag">Aucun binôme récurrent recensé — plutôt un solitaire.</span>`;
+
+    $("#amInfl").innerHTML = d.influences.length
+      ? d.influences.map(i => `<span>${esc(i)}</span>`).join(" &middot; ")
+      : "Influences non documentées pour l'instant.";
+
+    amodal.classList.add("is-open");
+    amodal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("no-scroll");
+    setTimeout(() => amodal.querySelector(".modal__close").focus(), 60);
+  }
+
+  function closeAuthor() {
+    if (!amodal.classList.contains("is-open")) return false;
+    amodal.classList.remove("is-open");
+    amodal.setAttribute("aria-hidden", "true");
+    if (!modal.classList.contains("is-open"))
+      document.body.classList.remove("no-scroll");
+    return true;
+  }
+
+  function initAuthor() {
+    amodal.addEventListener("click", e => {
+      if (e.target.hasAttribute("data-aclose")) closeAuthor();
+    });
+
+    /* Un clic sur un nom d'auteur, n'importe où dans l'app */
+    document.addEventListener("click", e => {
+      const b = e.target.closest("[data-author]");
+      if (!b) return;
+      openAuthor(b.dataset.author);
+    });
+
+    /* Œuvre dans la bibliographie → fiche livre (on referme l'auteur) */
+    $("#amWorks").addEventListener("click", e => {
+      const b = e.target.closest("[data-open]"); if (!b) return;
+      closeAuthor();
+      openModal(+b.dataset.open);
+    });
+  }
+
+  /* ═══════════ GALERIE · ÉDITIONS · TIMELINE (fiche livre) ═══════════ */
+
+  /* Maquettes de planches générées (démo, aucun visuel copié) */
+  const GAL_LAYOUTS = [
+    [[30, 40, 340, 140], [30, 195, 160, 170], [210, 195, 160, 170], [30, 380, 340, 180]],
+    [[30, 40, 160, 180], [210, 40, 160, 180], [30, 235, 340, 130], [30, 380, 105, 180], [148, 380, 105, 180], [265, 380, 105, 180]],
+    [[30, 40, 340, 240], [30, 295, 340, 110], [30, 420, 160, 140], [210, 420, 160, 140]]
+  ];
+
+  function mockPage(it, n) {
+    const boxes = GAL_LAYOUTS[(n + it.id) % GAL_LAYOUTS.length];
+    const c = it.color;
+    const rects = boxes.map(([x, y, w, h], i) => {
+      const op = (0.16 + ((i * 37 + n * 13 + it.id * 7) % 40) / 100).toFixed(2);
+      const stroke = (i + n) % 2
+        ? `<path d="M${x + 14} ${y + h - 22} L${x + w * 0.42} ${y + 26} L${x + w - 14} ${y + h - 36}" stroke="#141414" stroke-width="5" fill="none" opacity=".5"/>` +
+          `<circle cx="${x + w * 0.66}" cy="${y + h * 0.42}" r="${Math.min(w, h) * 0.16}" fill="#141414" opacity=".35"/>`
+        : `<path d="M${x + 12} ${y + h * 0.3} Q${x + w / 2} ${y + h * 0.85} ${x + w - 12} ${y + h * 0.25}" stroke="#141414" stroke-width="6" fill="none" opacity=".45"/>`;
+      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="${c}" opacity="${op}"/>` +
+             `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="url(#ht)"/>` +
+             stroke;
+    }).join("");
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">` +
+      `<defs><pattern id="ht" width="6" height="6" patternUnits="userSpaceOnUse">` +
+      `<circle cx="2" cy="2" r="1.15" fill="#000" opacity=".14"/></pattern></defs>` +
+      `<rect width="400" height="600" fill="#f6f3ea"/>` + rects +
+      `<rect width="400" height="600" fill="url(#ht)" opacity=".3"/>` +
+      `<text x="344" y="584" font-family="monospace" font-size="13" fill="#8a8578" text-anchor="end">${(it.id * 7 + n * 13) % 89 + 1}</text>` +
+      `</svg>`;
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  }
+
+  function galShow(stage, src, cap) {
+    stage.innerHTML =
+      `<img src="${src}" alt="${esc(cap)}" />` +
+      `<span class="gal__stage-cap">${esc(cap)}</span>`;
+  }
+
+  function renderGallery(it) {
+    const gal = $("#mGal"); gal.hidden = false;
+    const stage = $("#galStage"), thumbs = $("#galThumbs");
+    const views = [
+      { cap: "Planche — maquette générée", src: mockPage(it, 1) },
+      { cap: "Double page — maquette générée", src: mockPage(it, 2) }
+    ];
+
+    const paintThumbs = (coverSrc) => {
+      const all = coverSrc ? [{ cap: "Couverture", src: coverSrc, isCover: true }].concat(views) : views;
+      thumbs.innerHTML = all.map((v, i) =>
+        `<button class="gal__thumb${i === 0 ? " is-on" : ""}" data-src="${v.src}" data-cap="${esc(v.cap)}" type="button">` +
+        `<img src="${v.src}" alt="${esc(v.cap)}" /></button>`).join("");
+      galShow(stage, all[0].src, all[0].cap);
+    };
+
+    paintThumbs(null);
+    Covers.resolve(it).then(url => {
+      if (url) paintThumbs(url);   /* la couverture devient la vue principale */
+    }).catch(() => {});
+
+    const q = encodeURIComponent(`${it.title} ${it.author}`);
+    $("#galExt").innerHTML =
+      `<span class="gal__ext-lbl">Extraits légaux chez l'éditeur :</span>` +
+      `<a href="https://archive.org/search?query=${q}" target="_blank" rel="noopener">Archive.org</a>` +
+      `<a href="https://www.google.com/search?tbm=bks&q=${q}" target="_blank" rel="noopener">Google Livres</a>`;
+  }
+
+  function renderEditions(it) {
+    const ed = $("#mEd"); ed.hidden = false;
+    const cur = it.variant || AI.EDITIONS[0];
+    $("#edCurrent").textContent = cur;
+    $("#edChips").innerHTML = AI.EDITIONS.map(v =>
+      `<button class="ed__chip${v === cur ? " is-on" : ""}" data-v="${esc(v)}" type="button">${esc(v)}</button>`
+    ).join("");
+  }
+
+  function initBookExtras() {
+    /* Miniatures de la galerie (état porté par les data-attributes) */
+    $("#galThumbs").addEventListener("click", e => {
+      const b = e.target.closest(".gal__thumb"); if (!b) return;
+      $$(".gal__thumb").forEach(t => t.classList.remove("is-on"));
+      b.classList.add("is-on");
+      galShow($("#galStage"), b.dataset.src, b.dataset.cap);
+    });
+
+    /* Variante d'édition → persistée sur l'ouvrage */
+    $("#edChips").addEventListener("click", e => {
+      const b = e.target.closest(".ed__chip"); if (!b) return;
+      const it = items.find(x => x.id === state.openId); if (!it) return;
+      it.variant = b.dataset.v;
+      persist();
+      renderEditions(it);
+      showToast(`📚  Variante enregistrée : ${it.variant}.`);
+    });
+  }
+
+  function renderTimeline(it) {
+    const tl = $("#mTl"); tl.hidden = false;
+    const d = AI.timeline(it);
+
+    $("#tlKind").textContent = d.kind === "universe"
+      ? "chronologie d'univers"
+      : "chronologie de série";
+
+    /* Piste 1 — publication */
+    $("#tlPubSpan").textContent = `${d.pub.from} → ${d.pub.to}`;
+    const pubPos = Math.max(4, Math.min(96, d.pub.pos));
+    $("#tlPubLbl").textContent = d.pub.atYear;
+    /* Piste 2 — histoire */
+    $("#tlStoryLbl").textContent = d.story.label;
+    const stPos = Math.max(4, Math.min(96, d.story.marker.pos));
+    $("#tlStoryLbl2").textContent = d.story.marker.year;
+    $("#tlEvents").innerHTML = d.story.events.map(ev => {
+      const here = ev.title.startsWith("★");
+      return `<li class="${here ? "is-here" : ""}"><b>${ev.year}</b> — ${esc(ev.title.replace(/^★\s*/, ""))}</li>`;
+    }).join("");
+    $("#tlNote").textContent = d.story.note;
+
+    /* animations (la modale n'est pas observée par l'IntersectionObserver) */
+    const pf = $("#tlPubFill"), pd = $("#tlPubDot"), pl = $("#tlPubLbl");
+    const sf = $("#tlStoryFill"), sd = $("#tlStoryDot"), sl = $("#tlStoryLbl2");
+    [pf, sf].forEach(f => f.style.width = "0%");
+    [pd, sd].forEach(x => x.style.left = "0%");
+    [pl, sl].forEach(x => x.style.left = "0%");
+    setTimeout(() => {
+      pf.style.width = d.pub.pos + "%";
+      pd.style.left = pubPos + "%";
+      pl.style.left = pubPos + "%";
+      sf.style.width = d.story.marker.pos + "%";
+      sd.style.left = stPos + "%";
+      sl.style.left = stPos + "%";
+    }, 160);
+  }
+
+  /* ═══════════ OÙ L'ACHETER ? — SHOP MULTI-ENSEIGNES ═══════════ */
+  function renderShop(it) {
+    const el = $("#mShop"); if (!el) return;
+    const s = AI.shopOf(it);
+    const link = l =>
+      `<a class="shop__btn" href="${l.u}" target="_blank" rel="sponsored noopener">${esc(l.n)}</a>`;
+
+    el.hidden = false;
+    el.innerHTML = `
+      <div class="shop__head">
+        <span class="shop__h">🛒 Où l'acheter ?</span>
+        <span class="shop__price">≈ ${s.unit.toFixed(2).replace(".", ",")} € / tome</span>
+      </div>
+      <div class="shop__grp">
+        <span class="shop__lbl">Neuf</span>
+        <div class="shop__links">${s.neuf.map(link).join("")}</div>
+      </div>
+      <div class="shop__grp">
+        <span class="shop__lbl">Occasion${s.oop ? `<em class="shop__oop">rupture probable</em>` : ""}</span>
+        <div class="shop__links">${s.occasion.map(link).join("")}</div>
+      </div>
+      <p class="shop__note">Recherche « ${esc(s.query)} » · estimation locale, prix indicatifs ·
+        certains liens peuvent être affiliés.</p>`;
+  }
+
+  /* ═══════════ MODALE ═══════════ */
+  const modal = $("#modal");
+
+  function setHash(id) {
+    try {
+      history.replaceState(null, "", id ? `#o/${id}` : location.pathname + location.search);
+    } catch (e) {
+      if (id) location.hash = `o/${id}`;
+      else if (location.hash.startsWith("#o/")) location.hash = "";
+    }
+  }
+
+  function openModal(id) {
+    const it = items.find(x => x.id === id); if (!it) return;
+    state.openId = id;
+
+    const cover = $("#mCover");
+    cover.style.cssText = `background:linear-gradient(155deg, ${it.color}, ${shade(it.color, -44)});`;
+    cover.innerHTML =
+      `<div class="cover-scrim"></div>` +
+      `<div class="mc-t">${esc(it.title)}</div>` +
+      `<div class="mc-a">${esc(it.author)}</div>`;
+    Covers.paint(cover, it);
+
+    $("#mFormat").textContent = it.format;
+    $("#mTitle").textContent  = it.title;
+    $("#mAuthor").innerHTML =
+      `<button type="button" class="lnk-au" data-author="${esc(it.author)}" ` +
+      `title="Voir la fiche auteur de ${esc(it.author)}">${esc(it.author)}</button>` +
+      ` · ${it.year}` + starsHTML(it.rating);
+    $("#mMeta").textContent   = it.desc;
+
+    const volEl = $("#mVolumes"); volEl.dataset.cur = 0;
+    countTo(volEl, it.volumes, 900);
+
+    $("#mYear").textContent   = it.year;
+    $("#mRating").textContent = it.rating + "/5";
+    $("#mStatus").textContent = it.status;
+    $("#mNext").style.display = it.read >= it.volumes ? "none" : "";
+
+    const rev = $("#mReview");
+    rev.value = it.review || "";
+
+    syncModalFav(it);
+    updateModalProgress(it);
+    renderShop(it);
+    renderGallery(it);
+    renderEditions(it);
+    renderTimeline(it);
+
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("no-scroll");
+    setHash(id);
+    setTimeout(() => $(".modal__close").focus(), 60);
+  }
+
+  function updateModalProgress(it) {
+    const p = progress(it);
+    $("#mProgLabel").textContent = `${it.read}/${it.volumes} tomes · ${p}%`;
+    const bar = $("#mProgBar");
+    bar.style.width = "0%";
+    setTimeout(() => bar.style.width = p + "%", 120);
+  }
+
+  function closeModal() {
+    if (!modal.classList.contains("is-open")) return;
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("no-scroll");
+    state.openId = null;
+    setHash(null);
+  }
+
+  function initModal() {
+    modal.addEventListener("click", e => { if (e.target.hasAttribute("data-close")) closeModal(); });
+
+    // Piège de focus
+    modal.addEventListener("keydown", e => {
+      if (e.key !== "Tab" || !modal.classList.contains("is-open")) return;
+      const f = $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', modal)
+        .filter(el => !el.disabled && el.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+
+    $("#mFav").addEventListener("click", () => {
+      const it = items.find(x => x.id === state.openId); if (it) toggleFav(it.id);
+    });
+
+    // Avis personnel (sauvegarde différée)
+    let revTimer;
+    $("#mReview").addEventListener("input", e => {
+      clearTimeout(revTimer);
+      const value = e.target.value;
+      revTimer = setTimeout(() => {
+        const it = items.find(x => x.id === state.openId); if (!it) return;
+        it.review = value.trim();
+        persist();
+        renderGrid(false);
+      }, 500);
+    });
+
+    $("#mNext").addEventListener("click", () => {
+      const it = items.find(x => x.id === state.openId); if (!it) return;
+      it.read = Math.min(it.volumes, it.read + 1);
+      logSession(1);
+      const finishing = it.read >= it.volumes;
+      if (finishing) {
+        it.status = "Terminé";
+        it.finishedAt = Store.iso(new Date());
+        logSession(2);
+      } else if (it.status === "Planifié") {
+        it.status = "En cours";
+      }
+      updateModalProgress(it);
+      $("#mStatus").textContent = it.status;
+      $("#mNext").style.display = it.read >= it.volumes ? "none" : "";
+      persist();
+      refreshAll(false);
+      showToast(finishing ? "🏁  Ouvrage terminé !" : `📖  Tome ${it.read}/${it.volumes}`);
+    });
+
+    $("#mDelete").addEventListener("click", () => {
+      const it = items.find(x => x.id === state.openId); if (!it) return;
+      if (!confirm(`Retirer « ${it.title} » de la bibliothèque ?`)) return;
+      items = items.filter(x => x.id !== it.id);
+      closeModal();
+      persist();
+      refreshAll();
+      showToast(`🗑️  « ${it.title} » retiré.`);
+    });
+
+    // Lien partagé : #o/<id>
+    const fromHash = () => {
+      const m = /^#o\/(\d+)/.exec(location.hash);
+      if (m) openModal(+m[1]);
+    };
+    addEventListener("hashchange", fromHash);
+    setTimeout(fromHash, 700);
+  }
+
+  /* ═══════════ OBJECTIF ANNUEL ═══════════ */
+  function initChallenge() {
+    const input = $("#chGoal");
+    input.addEventListener("change", () => {
+      db.goal = Math.max(1, parseInt(input.value) || 40);
+      input.value = db.goal;
+      persist();
+      renderChallenge();
+      const card = input.closest(".stat-card");
+      const bar = $("#chBar");
+      if (bar) setTimeout(() => bar.style.width = bar.dataset.w + "%", 60);
+      if (card) card.classList.add("is-in");
+    });
+  }
+
+  /* ═══════════ INSIGHTS & PROFIL DE LECTURE ═══════════ */
+  function renderInsights() {
+    const card = $("#insCard");
+    if (!card) return;
+    const d = AI.insights(items, db.activity, { offset: state.insOffset });
+
+    $("#insMonth").textContent = "· " + d.label;
+    $("#insText").textContent = d.text;
+
+    const tiles = [
+      [d.finished.length, "terminés"],
+      [d.added.length,     "ajoutés"],
+      [d.sessions,         "sessions"],
+      [d.avg ? d.avg.toFixed(1) + "/5" : "—", d.mode === "month" ? "note du mois" : "note moyenne"]
+    ];
+    $("#insTiles").innerHTML = tiles.map(([v, l]) =>
+      `<div class="ins__tile"><b>${v}</b><span>${l}</span></div>`).join("");
+
+    $("#insBars").innerHTML = d.themes.length
+      ? d.themes.map((t, i) => `
+        <div class="ins__bar ins__bar--${i + 1}">
+          <div class="ins__bar-top"><span>${esc(t.label)}</span><b>${t.pct}%</b></div>
+          <div class="ins__track"><i class="ins__fill" data-w="${t.pct}"></i></div>
+        </div>`).join("")
+      : `<p class="ins__empty">Aucun penchant détecté pour l'instant.</p>`;
+
+    const s = d.suggestion;
+    $("#insSuggest").innerHTML = s
+      ? `<button class="ins__pick" data-id="${s.id}">
+           <span class="ins__pick-t">${esc(s.title)}</span>
+           <span class="ins__pick-m">${esc(s.author)} · ${s.year} · ${s.rating}/5 · ${s.read}/${s.volumes} tomes</span>
+           <span class="ins__pick-why">✓ en phase avec tes penchants du moment</span>
+         </button>`
+      : `<p class="ins__empty">Rien à proposer pour l'instant.</p>`;
+
+    $("#insPrev").disabled = state.insOffset >= 12;
+    $("#insNext").disabled = state.insOffset <= 0;
+
+    /* Les barres s'animent seulement si la carte est déjà révélée :
+       sinon c'est l'IntersectionObserver qui s'en charge. */
+    const revealed = card.classList.contains("is-in");
+    $$(".ins__fill", card).forEach((b, i) => {
+      if (revealed) setTimeout(() => b.style.width = b.dataset.w + "%", 60 + i * 90);
+      else b.style.width = "0%";
+    });
+  }
+
+  function initInsights() {
+    $("#insPrev").addEventListener("click", () => {
+      if (state.insOffset < 12) { state.insOffset++; renderInsights(); }
+    });
+    $("#insNext").addEventListener("click", () => {
+      if (state.insOffset > 0) { state.insOffset--; renderInsights(); }
+    });
+    $("#insSuggest").addEventListener("click", e => {
+      const b = e.target.closest(".ins__pick");
+      if (b) openModal(+b.dataset.id);
+    });
+  }
+
+  /* ═══════════ SMART BUY — ASSISTANT D'ACHAT ═══════════ */
+  function renderSmartBuy() {
+    const out = $("#sbOut"); if (!out) return;
+    const res = AI.smartBuy(state.sbBudget, items);
+    const eur = c => (c / 100).toFixed(2).replace(".", ",") + " €";
+
+    const rows = res.picks.map((p, i) => `
+      <li class="sb__item" style="--i:${i}">
+        <div class="sb__main">
+          <b>${esc(p.title)}</b>
+          <span class="sb__meta">${esc(p.format)} · ${p.n === 1
+            ? `tome ${p.from}` : `tomes ${p.from} → ${p.to}`} · ${p.missing} à acquérir dans la série</span>
+          <span class="sb__why">✓ ${p.why.length ? p.why.map(esc).join(" · ") : "complète ta collection"}</span>
+        </div>
+        <div class="sb__price">
+          <b>${eur(p.cost)}</b>
+          <i>${p.oop ? `≈ ${eur(p.occ)} en occasion` : `${eur(p.unit)} / tome`}</i>
+        </div>
+        <button class="mini-btn" data-open="${p.id}" type="button">↗ fiche</button>
+      </li>`).join("");
+
+    out.innerHTML =
+      `<p class="sb__text">${res.text}</p>` +
+      (res.picks.length ? `<ul class="sb__list">${rows}</ul>` : "") +
+      `<div class="sb__totals">
+         <span>Total <b>${eur(res.spent)}</b></span>
+         <span>Reste <b>${eur(res.left)}</b></span>
+         <span class="sb__note">Prix estimés (neuf) · occasion ≈ −45 % · séries incomplètes analysées</span>
+       </div>`;
+  }
+
+  function initSmartBuy() {
+    const input = $("#sbBudget");
+    if (!input) return;
+    input.value = state.sbBudget;
+
+    const syncPreset = () =>
+      $$("#sbPresets .chip").forEach(x =>
+        x.classList.toggle("is-active", +x.dataset.v === state.sbBudget));
+
+    const run = () => {
+      state.sbBudget = Math.max(0, parseInt(input.value, 10) || 0);
+      input.value = state.sbBudget;
+      persist();
+      syncPreset();
+      renderSmartBuy();
+      $("#sbCard").classList.add("is-in");
+    };
+
+    $("#sbGo").addEventListener("click", run);
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); run(); }
+    });
+    $("#sbPresets").addEventListener("click", e => {
+      const b = e.target.closest(".chip[data-v]"); if (!b) return;
+      state.sbBudget = +b.dataset.v;
+      input.value = state.sbBudget;
+      persist();
+      syncPreset();
+      renderSmartBuy();
+      $("#sbCard").classList.add("is-in");
+    });
+    $("#sbCard").addEventListener("click", e => {
+      const b = e.target.closest("[data-open]");
+      if (b) openModal(+b.dataset.open);
+    });
+
+    syncPreset();
+    renderSmartBuy();
+  }
+
+  /* ═══════════ ORDRES DE LECTURE ═══════════ */
+  const KIND_LABEL = {
+    essentiel: "Incontournable",
+    contexte:  "Contexte",
+    optionnel:  "Optionnel",
+    autonome:  "Hors-série",
+    reprise:    "Reprends ici"
+  };
+
+  const RO_EMPTY = `
+    <div class="ro__empty">
+      <span class="ro__empty-icon">🧭</span>
+      <h3>Un fil conducteur, étape par étape</h3>
+      <p>Pose ta question : une saga, un auteur, un crossover, un arc. Je reconstitue l'ordre,
+         j'explique chaque étape et je te dis ce que tu as déjà — et ce qu'il te reste à trouver.</p>
+    </div>`;
+
+  let lastPlan = null;
+
+  function renderOrder(raw) {
+    const out = $("#roOut");
+    const q = String(raw || "").trim();
+    if (!q) { lastPlan = null; out.innerHTML = RO_EMPTY; return; }
+
+    const res = AI.readingOrder(q, items);
+
+    if (res.kind === "none") {
+      lastPlan = null;
+      out.innerHTML = `
+        <div class="ro__none">
+          <span class="ro__empty-icon">🔍</span>
+          <h3>Pas encore de fil conducteur pour ça</h3>
+          <p>Je n'ai pas d'ordre codé pour « ${esc(q)} ». Essaie l'une de ces sagas — ou reformule
+             ta demande en recherche d'ambiance, mon autre moteur s'en charge.</p>
+          <div class="ro__sugg">${res.suggestions.map(s =>
+            `<button class="chip chip--ex" data-roq="${esc(s.q)}">${esc(s.title)}</button>`).join("")}</div>
+          <button class="btn btn--ghost btn--sm" data-vibe="${esc(q)}">
+            <span>✦ Chercher « ${esc(q)} » par ambiance</span>
+          </button>
+        </div>`;
+      return;
+    }
+
+    const steps = res.steps;
+    const inLib  = steps.filter(s => s.item).length;
+    const toFind = steps.length - inLib;
+    const resume = steps.find(s => s.item && s.item.read > 0 && s.item.read < s.item.volumes);
+    lastPlan = res;
+
+    out.innerHTML = `
+      <div class="ro__head">
+        <div class="ro__head-main">
+          <span class="ro__kind${res.kind === "generated" ? " is-gen" : ""}">${
+            res.kind === "generated" ? "✦ Ordre reconstruit" : "✦ Ordre de lecture"}</span>
+          <h3 class="ro__title">${esc(res.title)}</h3>
+          <p class="ro__blurb">${esc(res.blurb)}</p>
+          <div class="ro__sum">
+            <span><b>${steps.length}</b> étapes</span>
+            <span class="is-lib"><b>${inLib}</b> dans ta bibliothèque</span>
+            ${toFind ? `<span class="is-out"><b>${toFind}</b> à acquérir</span>` : ""}
+            ${resume ? `<span>↳ reprise au tome ${resume.item.read + 1}/${resume.item.volumes} — ${esc(resume.item.title)}</span>` : ""}
+          </div>
+        </div>
+        <button class="mini-btn ro__copy" data-copy>📋 Copier l'ordre</button>
+      </div>
+
+      <ol class="ro__steps">
+        ${steps.map((s, i) => {
+          const head = s.arc
+            ? `<span class="step__arc">${esc(s.arc)}</span>`
+            : `<div class="step__t">${esc(s.t)}</div>`;
+          const meta = s.arc
+            ? `${esc(s.t)} · <button type="button" class="lnk-au" data-author="${esc(s.a)}">${esc(s.a)}</button>`
+            : `<button type="button" class="lnk-au" data-author="${esc(s.a)}">${esc(s.a)}</button>${s.y ? " · " + s.y : ""}`;
+          const lib = s.item
+            ? `<button class="step__lib is-lib" data-open="${s.item.id}">dans ta bibliothèque · ${s.item.read}/${s.item.volumes}</button>`
+            : `<span class="step__lib">à acquérir</span>`;
+          const p = s.item ? progress(s.item) : 0;
+          const prog = s.item ? `
+              <div class="step__prog">
+                <div class="progress"><i style="width:${p}%"></i></div><span>${p}%</span>
+              </div>` : "";
+          return `
+            <li class="step step--${s.k}" style="--sd:${Math.min(i, 14) * 55}ms">
+              <div class="step__n">${String(i + 1).padStart(2, "0")}</div>
+              <div class="step__card">
+                <div class="step__top">
+                  <span class="step__kind">${KIND_LABEL[s.k] || s.k}</span>
+                  ${lib}
+                </div>
+                ${head}
+                <div class="step__m">${meta}</div>
+                <p class="step__why">${esc(s.why)}</p>
+                ${prog}
+              </div>
+            </li>`;
+        }).join("")}
+      </ol>
+
+      <p class="ro__note"><b>Pourquoi cet ordre —</b> ${esc(res.note)}</p>`;
+  }
+
+  function copyPlan() {
+    if (!lastPlan) return;
+    const lines = [lastPlan.title, "", lastPlan.blurb, ""];
+    lastPlan.steps.forEach((s, i) => lines.push(
+      `${i + 1}. ${s.arc ? s.arc + " — " : ""}${s.t} (${s.a}${s.y ? ", " + s.y : ""})` +
+      `${s.item ? " · dans ta bibliothèque" : " · à acquérir"}`));
+    lines.push("", "Pourquoi cet ordre : " + lastPlan.note);
+    const txt = lines.join("\n");
+    const done = () => showToast("📋  Ordre copié dans le presse-papiers.");
+    const fallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+      showToast(ok ? "📋  Ordre copié dans le presse-papiers." : "⚠️  Copie impossible.");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(txt).then(done, fallback);
+    else fallback();
+  }
+
+  function initReading() {
+    const input = $("#roInput"), out = $("#roOut"), ex = $("#roExamples");
+    const picks = AI.orderSuggestions().slice(0, 7);
+    ex.innerHTML = picks.map(o =>
+      `<button class="chip chip--ex" data-q="${esc(o.q)}">${esc(o.title)}</button>`).join("");
+
+    ex.addEventListener("click", e => {
+      const b = e.target.closest(".chip--ex"); if (!b) return;
+      input.value = b.dataset.q;
+      renderOrder(b.dataset.q);
+    });
+
+    const run = () => renderOrder(input.value);
+    $("#roGo").addEventListener("click", run);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); run(); } });
+
+    out.addEventListener("click", e => {
+      if (e.target.closest("[data-copy]"))   { copyPlan(); return; }
+      const lib = e.target.closest("[data-open]");
+      if (lib) { openModal(+lib.dataset.open); return; }
+      const vb = e.target.closest("[data-vibe]");
+      if (vb) { jumpToVibe(vb.dataset.vibe); return; }
+      const rq = e.target.closest("[data-roq]");
+      if (rq) { input.value = rq.dataset.roq; renderOrder(rq.dataset.roq); }
+    });
+
+    renderOrder("");
+  }
+
+  /* ═══════════ RAFRAÎCHISSEMENT GLOBAL ═══════════ */
+  function refreshAll(rerenderGrid = true) {
+    renderMetrics();
+    if (rerenderGrid) renderGrid();
+    renderStats();
+    observeStats();
+  }
+
+  /* ═══════════ DÉMARRAGE ═══════════ */
+  document.addEventListener("DOMContentLoaded", () => {
+    runLoader();
+    initCursor();
+    initNav();
+    buildHeroStack();
+    initParallax();
+    initToolbar();
+    initVibe();
+    initForm();
+    initModal();
+    initChallenge();
+    initInsights();
+    initSmartBuy();
+    initAuthor();
+    initBookExtras();
+    initReading();
+
+    renderMetrics();
+    renderGrid();
+    renderStats();
+    observeStats();
+
+    Covers.warmAll(items);
+  });
+})();
