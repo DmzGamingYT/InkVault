@@ -316,6 +316,7 @@ const Covers = (() => {
     const img = document.createElement("img");
     img.className = cls;
     img.alt = "";
+    img.loading = "lazy";
     img.decoding = "async";
     img.addEventListener("load", () => { img.classList.add("is-loaded"); settle(); });
     img.addEventListener("error", settle);

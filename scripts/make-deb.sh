@@ -87,9 +87,16 @@ Description: InkVault - bibliotheque comics & mangas avec IA locale
  fiches d'auteurs et optimiseur de panier — tout hors-ligne.
 EOF
 
-# ── Archives (uid/gid0 pour un install propre, sans AppleDouble) ──
-(cd "$STAGE/data"     && COPYFILE_DISABLE=1 tar --disable-copyfile --uid 0 --gid 0 -czf "$STAGE/data.tar.gz" .)
-(cd "$STAGE/control"  && COPYFILE_DISABLE=1 tar --disable-copyfile --uid 0 --gid 0 -czf "$STAGE/control.tar.gz" .)
+# ── Archives (uid/gid 0 pour un install propre, sans AppleDouble) ──
+# Portabilité macOS ↔ Linux : GNU tar refuse --disable-copyfile/--uid,
+# bsdtar ne connaît pas --owner/--group de la même façon.
+if tar --version 2>/dev/null | head -n1 | grep -qi 'gnu'; then
+  TARFLAGS=(--owner=0 --group=0)                 # GNU tar (Linux, CI)
+else
+  TARFLAGS=(--disable-copyfile --uid 0 --gid 0)  # bsdtar (macOS)
+fi
+(cd "$STAGE/data"     && COPYFILE_DISABLE=1 tar "${TARFLAGS[@]}" -czf "$STAGE/data.tar.gz" .)
+(cd "$STAGE/control"  && COPYFILE_DISABLE=1 tar "${TARFLAGS[@]}" -czf "$STAGE/control.tar.gz" .)
 echo "2.0" > "$STAGE/debian-binary"
 
 # ── Assemblage final (ar sans dépendance : ar système cassé sous macOS26) ──

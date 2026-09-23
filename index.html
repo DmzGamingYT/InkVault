@@ -12,6 +12,11 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230a0a0f'/%3E%3Cpath d='M32 14l6 12 12 6-12 6-6 12-6-12-12-6 12-6z' fill='%237c5cff'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://openlibrary.org">
+<link rel="preconnect" href="https://covers.openlibrary.org">
+<link rel="preconnect" href="https://www.googleapis.com">
+<link rel="preconnect" href="https://en.wikipedia.org">
+<link rel="preconnect" href="https://graphql.anilist.co">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
 </head>
@@ -572,6 +577,7 @@
     </div>
 
     <p class="am__bio" id="amBio"></p>
+    <p class="am__bio am__bio--ext" id="amBioExt" hidden></p>
 
     <div class="am__block">
       <h5 class="am__h">Style & thèmes de prédilection</h5>
@@ -587,6 +593,14 @@
       </div>
       <p class="am__gauge-note" id="amGaugeNote"></p>
       <ul class="am__works" id="amWorks"></ul>
+    </div>
+
+    <div class="am__block">
+      <h5 class="am__h">📚 Bibliographie complète <span class="am__live-pill">✦ live</span></h5>
+      <p class="am__live-note" id="amLiveNote" aria-live="polite">🔎 Interrogation de Wikipédia, Open Library & Google Books…</p>
+      <ul class="am__works am__works--live" id="amLiveWorks" hidden></ul>
+      <button class="am__live-more" id="amLiveMore" type="button" hidden></button>
+      <p class="am__live-src" id="amLiveSrc" hidden></p>
     </div>
 
     <div class="am__cols">

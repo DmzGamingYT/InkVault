@@ -1994,3 +1994,51 @@ html[data-skin="onepiece"] .orb{ opacity:.22; }
   .gal__stage{ height:170px; }
   .gal__thumb{ width:52px; height:72px; }
 }
+
+/* ══════════ Fiche auteur — enrichissement live (API réelles) ══════════ */
+.am__live-pill{
+  display:inline-block; vertical-align:middle; margin-left:7px;
+  font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  padding:2px 9px; border-radius:20px; vertical-align:2px;
+  background:var(--accent-soft); color:var(--accent);
+}
+.am__bio--ext{
+  border-left:3px solid var(--accent); padding:3px 0 3px 13px;
+  margin:-8px 0 20px; color:var(--txt-2);
+}
+.am__src-pill{
+  display:inline-block; font-size:10.5px; font-weight:700;
+  padding:2px 9px; border-radius:20px; margin-right:7px;
+  background:var(--accent-soft); color:var(--accent);
+}
+.am__live-note{ margin:0; font-size:12.5px; line-height:1.55; color:var(--txt-3); }
+.am__works--live{ margin-top:11px; }
+.am__lc{
+  width:34px; height:48px; object-fit:cover; border-radius:5px; flex:none;
+  background:var(--surface); box-shadow:0 2px 7px rgba(0,0,0,.28);
+}
+.am__lc--ph{
+  display:flex; align-items:center; justify-content:center;
+  font-size:15px; color:var(--txt-3);
+}
+.am__b-own, .am__b-ser{
+  flex:none; font-size:10.5px; font-weight:800; padding:3px 9px;
+  border-radius:20px; white-space:nowrap;
+}
+.am__b-own{
+  background:color-mix(in oklab, #2ecc71 20%, transparent);
+  color:color-mix(in oklab, #2ecc71 72%, var(--txt));
+}
+.am__b-ser{
+  background:var(--accent-soft); color:var(--accent-2);
+}
+.am__live-more{
+  width:100%; margin-top:9px; padding:8px; font-size:12px; cursor:pointer;
+  border:1px dashed var(--line); border-radius:11px;
+  background:transparent; color:var(--txt-2); transition:.2s var(--ease);
+}
+.am__live-more:hover{ background:var(--accent-soft); color:var(--txt); border-color:var(--accent); }
+.am__live-src{ margin:10px 0 0; font-size:11px; line-height:1.5; color:var(--txt-3); opacity:.85; }
+
+/* ══════════ Perfs : rendu différé des cartes hors écran ══════════ */
+.card{ content-visibility:auto; contain-intrinsic-size:auto 430px; }

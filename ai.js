@@ -1601,10 +1601,128 @@ const AI = (() => {
     };
   }
 
+  /* ══════════ 12. ENRICHISSEMENT LIVE — VRAIES API ══════════
+     Wikipédia (bio) · Open Library (bibliographie) · Google Books (secours)
+     — best-effort : timeout 8 s, cache localStorage 7 jours,
+       retour silencieux sur la base locale si hors ligne. */
+
+  const Live = (() => {
+    "use strict";
+    const LS = typeof localStorage !== "undefined" ? localStorage : null;
+    const TTL = 7 * 86400000;
+    const nrm = s => (s || "").toString().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "");
+    const ck = n => "iv-live-v1-" + nrm(n);
+
+    async function getJSON(url, ms = 8000) {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const t = ctrl ? setTimeout(() => ctrl.abort(), ms) : 0;
+      try {
+        const res = await fetch(url, ctrl ? { signal: ctrl.signal } : {});
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } finally { if (t) clearTimeout(t); }
+    }
+
+    /* Bio d'intro Wikipédia (fr puis en) */
+    async function wikiBio(name) {
+      for (const lang of ["fr", "en"]) {
+        try {
+          const d = await getJSON(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/` + encodeURIComponent(name));
+          if (d && d.extract && d.type !== "disambiguation")
+            return {
+              extract: d.extract, lang: lang === "fr" ? "FR" : "EN",
+              url: (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || ""
+            };
+        } catch (e) {}
+      }
+      return null;
+    }
+
+    /* Bibliographie : Open Library (auteur exact) */
+    async function olWorks(name) {
+      try {
+        const d = await getJSON("https://openlibrary.org/search.json?author=" +
+          encodeURIComponent(name) + "&limit=60&fields=title,first_publish_year,cover_i");
+        return ((d && d.docs) || []).map(w => ({
+          t: w.title || "", y: w.first_publish_year || 0,
+          c: w.cover_i ? "https://covers.openlibrary.org/b/id/" + w.cover_i + "-S.jpg" : ""
+        }));
+      } catch (e) { return []; }
+    }
+
+    /* Secours / complément : Google Books (inauthor) */
+    async function gbWorks(name) {
+      try {
+        const d = await getJSON("https://www.googleapis.com/books/v1/volumes?printType=books&maxResults=40&q=" +
+          encodeURIComponent('inauthor:"' + name + '"'));
+        return ((d && d.items) || []).map(x => {
+          const v = x.volumeInfo || {};
+          const th = v.imageLinks && (v.imageLinks.smallThumbnail || v.imageLinks.thumbnail);
+          return {
+            t: v.title || "",
+            y: parseInt(String(v.publishedDate || "").slice(0, 4), 10) || 0,
+            c: th ? String(th).replace(/^http:/, "https:") : ""
+          };
+        });
+      } catch (e) { return []; }
+    }
+
+    async function authorLive(name, items) {
+      /* Cache 7 jours */
+      let cached = null;
+      if (LS) { try { cached = JSON.parse(LS.getItem(ck(name)) || "null"); } catch (e) {} }
+      if (cached && cached.data && Date.now() - cached.at < TTL) return cached.data;
+
+      const [bio, ol, gb] = await Promise.all([wikiBio(name), olWorks(name), gbWorks(name)]);
+
+      /* Fusion + dédup (une entrée couverture primée) — titres sans lettres
+         latines (kana/kanji seuls) écartés : illisibles dans l'UI */
+      const map = new Map();
+      [...ol, ...gb].forEach(w => {
+        const k = nrm(w.t);
+        if (!k || !/[a-z]/.test(k) || w.t.length < 2) return;
+        if (/duplicate\s+of|^record\s|\(import\b/i.test(w.t)) return;   // orphelins Open Library
+        const prev = map.get(k);
+        if (!prev) map.set(k, w);
+        else if (!prev.c && w.c) map.set(k, { t: w.t, y: prev.y || w.y, c: w.c });
+      });
+
+      /* Croisement avec la collection : exact = possédé, series = série suivie */
+      const libNorms = (items || []).filter(i => i.author === name).map(i => nrm(i.title));
+      const works = [...map.values()].map(w => {
+        const k = nrm(w.t);
+        const exact = libNorms.includes(k);
+        const series = !exact && libNorms.some(l => l.length > 3 && (k.startsWith(l) || l.startsWith(k)));
+        return { t: w.t, y: w.y, c: w.c, exact, series };
+      }).sort((a, b) => ((a.y || 9999) - (b.y || 9999)) || a.t.localeCompare(b.t));
+
+      const data = {
+        bio,
+        works,
+        total: works.length,
+        exact: works.filter(w => w.exact).length,
+        series: works.filter(w => w.series).length,
+        src: [
+          ol.length ? "Open Library" : "",
+          gb.length ? "Google Books" : "",
+          bio ? "Wikipédia" : ""
+        ].filter(Boolean)
+      };
+
+      if (LS) { try { LS.setItem(ck(name), JSON.stringify({ at: Date.now(), data })); } catch (e) {} }
+      return data;
+    }
+
+    return { authorLive };
+  })();
+
   /* ═══════════════ API ═══════════════ */
   return {
     vibe, readingOrder, insights, orderSuggestions, tagsOf, sim, key,
     smartBuy, shopOf, unitPrice, oopOf, AFFILIATES,
-    author, timeline, EDITIONS, AUTHORS, CREDITS
+    author, timeline, EDITIONS, AUTHORS, CREDITS,
+    authorLive: Live.authorLive
   };
 })();

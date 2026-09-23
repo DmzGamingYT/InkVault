@@ -500,7 +500,12 @@
 
   /* ═══════════ BARRE D'OUTILS ═══════════ */
   function initToolbar() {
-    $("#search").addEventListener("input", e => { state.q = e.target.value; renderGrid(false); });
+    let searchTimer = 0;
+    $("#search").addEventListener("input", e => {
+      state.q = e.target.value;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => renderGrid(false), 140);
+    });
 
     $$("#filters .chip[data-filter]").forEach(c => c.addEventListener("click", () => {
       if (!c.dataset.filter) return;
@@ -862,6 +867,7 @@
 
   /* ═══════════ FICHE AUTEUR 360° — RÉSEAU ARTISTIQUE ═══════════ */
   const amodal = $("#amodal");
+  let liveSeq = 0;
 
   function openAuthor(name) {
     const d = AI.author(name, items);
@@ -926,6 +932,82 @@
     amodal.setAttribute("aria-hidden", "false");
     document.body.classList.add("no-scroll");
     setTimeout(() => amodal.querySelector(".modal__close").focus(), 60);
+
+    /* Enrichissement live : bio Wikipédia + bibliographie réelle */
+    resetAuthorLive();
+    const seq = ++liveSeq;
+    AI.authorLive(name, items)
+      .then(d => { if (seq === liveSeq) paintAuthorLive(d, name); })
+      .catch(() => {
+        if (seq !== liveSeq) return;
+        $("#amLiveNote").textContent =
+          "📴 Hors ligne — la bibliographie locale documentée ci-dessus reste affichée.";
+      });
+  }
+
+  function resetAuthorLive() {
+    const note = $("#amLiveNote");
+    note.hidden = false;
+    note.textContent = "🔎 Interrogation de Wikipédia, Open Library & Google Books…";
+    $("#amLiveWorks").hidden = true;
+    $("#amLiveWorks").innerHTML = "";
+    $("#amLiveMore").hidden = true;
+    $("#amLiveMore").onclick = null;
+    $("#amLiveSrc").hidden = true;
+    $("#amBioExt").hidden = true;
+    $("#amBioExt").textContent = "";
+  }
+
+  function paintAuthorLive(d, name) {
+    /* Bio d'introduction Wikipédia */
+    if (d.bio && d.bio.extract) {
+      const ext = $("#amBioExt");
+      ext.innerHTML = `<span class="am__src-pill">🌐 Wikipédia</span>${esc(d.bio.extract)}`;
+      ext.hidden = false;
+    }
+
+    const note = $("#amLiveNote");
+    if (!d.works.length) {
+      note.textContent = `Aucun titre trouvé en ligne pour ${name} — la bibliographie locale ci-dessus reste affichée.`;
+      return;
+    }
+
+    note.textContent = `📊 ${d.total} titre${d.total > 1 ? "s" : ""} référencé${d.total > 1 ? "s" : ""} en ligne` +
+      (d.exact ? ` · ${d.exact} dans ta collection` : "") +
+      (d.series ? ` · ${d.series} de tes séries suivies` : "") + ".";
+
+    const LIMIT = 15;
+    let shown = LIMIT;
+    const ul = $("#amLiveWorks");
+    const more = $("#amLiveMore");
+    const row = w => `
+      <li>
+        ${w.c
+          ? `<img class="am__lc" src="${w.c}" alt="" loading="lazy" decoding="async">`
+          : `<span class="am__lc am__lc--ph">📖</span>`}
+        <div class="am__work-b"><span class="am__work-t">${esc(w.t)}</span></div>
+        <span class="am__work-s">${w.y || "—"}</span>
+        ${w.exact ? `<span class="am__b-own">✅ possédé</span>`
+          : w.series ? `<span class="am__b-ser">📚 série suivie</span>` : ""}
+      </li>`;
+    const render = () => {
+      ul.innerHTML = d.works.slice(0, shown).map(row).join("");
+      ul.hidden = false;
+      const rest = d.works.length - shown;
+      if (rest > 0) {
+        more.hidden = false;
+        more.textContent = `Afficher les ${rest} autre${rest > 1 ? "s" : ""} titre${rest > 1 ? "s" : ""} ↓`;
+      } else if (shown > LIMIT) {
+        more.hidden = false;
+        more.textContent = "Réduire la liste ↑";
+      } else more.hidden = true;
+    };
+    render();
+    more.onclick = () => { shown = shown > LIMIT ? LIMIT : d.works.length; render(); };
+
+    const src = $("#amLiveSrc");
+    src.textContent = "Sources : " + (d.src.join(" · ") || "—") + " · cache local 7 jours.";
+    src.hidden = false;
   }
 
   function closeAuthor() {
