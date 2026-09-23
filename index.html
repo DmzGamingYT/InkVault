@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https:; frame-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>InkVault — Bibliothèque Comics & Mangas</title>
 <meta name="description" content="InkVault — ta bibliothèque personnelle de comics, mangas et webtoons : catalogue, notes, progression et statistiques." />
@@ -592,6 +593,7 @@
 
       <div class="modal__actions">
         <button class="btn btn--primary btn--sm" id="mNext"><span>Tome suivant</span></button>
+        <button class="btn btn--ghost btn--sm" id="mEdit"><span>Modifier</span></button>
         <button class="btn btn--ghost btn--sm" id="mDelete"><span>Retirer</span></button>
       </div>
     </div>

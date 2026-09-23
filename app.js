@@ -33,7 +33,7 @@
     mode:   db.prefs.mode   || "text",   // "text" = recherche classique · "vibe" = recherche par ambiance
     skin:   db.prefs.skin   || localStorage.getItem("ink-skin") ||
             (localStorage.getItem("ink-theme") === "light" ? "claire" : "gotham"),
-    sbBudget: db.prefs.sb   || 50,        // budget du Smart Buy (€)
+    sbBudget: db.prefs.sb   ?? 50,        // budget du Smart Buy (€)
     vibe:   null,                         // dernier résultat du moteur d'ambiance
     insOffset: 0,                         // 0 = mois en cours
     openId: null
@@ -47,9 +47,9 @@
       view:   state.view   || "grid",
       mode:   state.mode   || "text",
       skin:   state.skin   || "gotham",
-      sb:     state.sbBudget || 50
+      sb:     state.sbBudget ?? 50
     };
-    Store.save(db);
+    return Store.save(db);
   }
 
   function logSession(n = 1) {
@@ -83,8 +83,9 @@
   }
 
   /* ═══════════ TRANSITION DE SECTION (VOILE) ═══════════ */
-  function goTo(id) {
+  function goTo(id, keepEdit = false) {
     const t = $("#" + id); if (!t) return;
+    if (id === "add" && !keepEdit && editingId !== null) $("#form").reset();
     const veil = $("#veil");
     if (reduced() || !veil) { scrollTo({ top: t.offsetTop - 60, behavior: "auto" }); return; }
     veil.classList.remove("is-on");
@@ -97,6 +98,11 @@
   /* ═══════════ NAVIGATION ═══════════ */
   function initNav() {
     const nav = $("#nav");
+    const mobileNav = document.createElement("nav");
+    mobileNav.className = "nav__links nav__links--mobile";
+    mobileNav.setAttribute("aria-label", "Navigation mobile");
+    mobileNav.innerHTML = $(".nav__links", nav).innerHTML;
+    document.body.appendChild(mobileNav);
     addEventListener("scroll", () => nav.classList.toggle("is-stuck", scrollY > 40), { passive: true });
 
     $$("[data-scroll]").forEach(el =>
@@ -626,14 +632,20 @@
       if (!Store.valid(data)) { showToast(ic("alert") + " Ce fichier n'est pas une sauvegarde InkVault valide."); return; }
       if (!await confirmBox(`Remplacer la bibliothèque actuelle par celle du fichier (${data.items.length} ouvrages) ?`, "Importer")) return;
 
-      db = Store.normalize(data);
+      const imported = Store.normalize(data);
+      if (!Store.save(imported)) {
+        showToast(ic("alert") + " Import impossible : stockage local indisponible.");
+        return;
+      }
+      db = imported;
       items = db.items;
+      $("#form").reset();
       state.filter = db.prefs.filter || "all";
       state.sort   = db.prefs.sort   || "title";
       state.view   = db.prefs.view   || "grid";
       state.mode   = db.prefs.mode   || "text";
       state.skin   = db.prefs.skin   || state.skin;
-      state.sbBudget = db.prefs.sb   || state.sbBudget;
+      state.sbBudget = db.prefs.sb   ?? state.sbBudget;
       persist();
       applySkin(state.skin, false);
       $("#sbBudget").value = state.sbBudget;
@@ -673,7 +685,7 @@
     }, 350);
 
     // Auteurs
-    const byAuthor = {};
+    const byAuthor = Object.create(null);
     items.forEach(i => byAuthor[i.author] = (byAuthor[i.author] || 0) + 1);
     const top = Object.entries(byAuthor).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const maxA = Math.max(...top.map(t => t[1]), 1);
@@ -808,8 +820,10 @@
   }
 
   /* ═══════════ FORMULAIRE ═══════════ */
+  let editingId = null;
   function initForm() {
     const sw = $("#swatches"), colorInput = $("#colorInput");
+    const form = $("#form");
     sw.innerHTML = PALETTE.map(c =>
       `<div class="swatch${c === colorInput.value ? " is-active" : ""}" data-c="${c}" style="background:${c}; color:${c}"></div>`
     ).join("");
@@ -827,44 +841,65 @@
       rating.style.background = `linear-gradient(90deg, var(--accent) ${p}%, var(--surface-2) ${p}%)`;
     };
     rating.addEventListener("input", paint); paint();
+    $('input[name="year"]').defaultValue = String(new Date().getFullYear());
 
-    $("#form").addEventListener("submit", e => {
+    form.addEventListener("reset", () => {
+      editingId = null;
+      $("#add .section-title").innerHTML = "Ajouter un <em>ouvrage</em>";
+      form.querySelector('[type="submit"] span').textContent = "Ajouter à la bibliothèque";
+      form.querySelector('[type="reset"] span').textContent = "Effacer";
+      setTimeout(() => {
+        $$(".swatch", sw).forEach(x => x.classList.toggle("is-active", x.dataset.c === colorInput.value));
+        paint();
+      }, 0);
+    });
+
+    form.addEventListener("submit", e => {
       e.preventDefault();
       const f = new FormData(e.target);
       const title  = (f.get("title")  || "").toString().trim();
       const author = (f.get("author") || "").toString().trim();
       if (!title || !author) { showToast(ic("alert") + " Le titre et l'auteur sont obligatoires."); return; }
 
+      const current = editingId === null ? null : items.find(x => x.id === editingId);
+      if (editingId !== null && !current) { showToast(ic("alert") + " Ouvrage introuvable."); return; }
       const volumes = Math.max(1, parseInt(f.get("volumes")) || 1);
-      const status  = f.get("status");
+      const status = f.get("status");
+      const today = Store.iso(new Date());
       const item = {
-        id: Date.now(),
+        ...(current || {}),
+        id: current ? current.id : items.reduce((max, x) => Math.max(max, x.id + 1), Date.now()),
         title, author,
         format: f.get("format"),
         year: parseInt(f.get("year")) || new Date().getFullYear(),
         volumes,
-        read: status === "Terminé" ? volumes : 0,
+        read: status === "Terminé" ? volumes : status === "Planifié" ? 0 : Math.min(current?.read || 0, volumes - 1),
         rating: parseFloat(f.get("rating")) || 0,
         status,
         color: f.get("color") || "#7c5cff",
-        desc: "Ajouté récemment à ta bibliothèque InkVault.",
-        fav: false,
-        review: "",
-        addedAt: Store.iso(new Date()),
-        finishedAt: status === "Terminé" ? Store.iso(new Date()) : null
+        desc: current?.desc || "Ajouté récemment à ta bibliothèque InkVault.",
+        fav: current?.fav || false,
+        review: current?.review || "",
+        addedAt: current?.addedAt || today,
+        finishedAt: status === "Terminé" ? (current?.finishedAt || today) : null
       };
-      if (item.read) logSession(2);
+      const previousItems = items;
+      const previousActivity = { ...db.activity };
+      if (status === "Terminé" && current?.status !== "Terminé") logSession(2);
 
-      items.unshift(item);
-      persist();
+      items = current ? items.map(x => x.id === current.id ? item : x) : [item, ...items];
+      if (!persist()) {
+        items = previousItems;
+        db.items = previousItems;
+        db.activity = previousActivity;
+        showToast(ic("alert") + " Enregistrement impossible : stockage local indisponible.");
+        return;
+      }
       refreshAll();
       buildHeroStack();
-      showToast(ic("check") + ` « ${esc(title)} » ajouté à la bibliothèque !`);
+      showToast(ic("check") + ` « ${esc(title)} » ${current ? "modifié" : "ajouté"} dans la bibliothèque !`);
 
-      e.target.reset();
-      colorInput.value = "#7c5cff";
-      $$(".swatch", sw).forEach(x => x.classList.toggle("is-active", x.dataset.c === "#7c5cff"));
-      paint();
+      form.reset();
       setTimeout(() => goTo("collection"), 550);
     });
   }
@@ -1441,6 +1476,22 @@
       const it = items.find(x => x.id === state.openId); if (it) toggleFav(it.id);
     });
 
+    $("#mEdit").addEventListener("click", () => {
+      const it = items.find(x => x.id === state.openId); if (!it) return;
+      editingId = it.id;
+      const form = $("#form");
+      for (const key of ["title", "author", "format", "year", "volumes", "status", "rating", "color"])
+        form.elements.namedItem(key).value = it[key];
+      $$(".swatch", $("#swatches")).forEach(x => x.classList.toggle("is-active", x.dataset.c === it.color));
+      form.querySelector('[name="rating"]').dispatchEvent(new Event("input"));
+      $("#add .section-title").innerHTML = "Modifier un <em>ouvrage</em>";
+      form.querySelector('[type="submit"] span').textContent = "Enregistrer les modifications";
+      form.querySelector('[type="reset"] span').textContent = "Annuler";
+      closeModal();
+      goTo("add", true);
+      form.elements.namedItem("title").focus();
+    });
+
     // Avis personnel : enregistrer avant toute fermeture ou ouverture d'une autre fiche.
     $("#mReview").addEventListener("input", e => {
       const it = items.find(x => x.id === state.openId); if (!it) return;
@@ -1472,9 +1523,15 @@
     $("#mDelete").addEventListener("click", async () => {
       const it = items.find(x => x.id === state.openId); if (!it) return;
       if (!await confirmBox(`Retirer « ${it.title} » de la bibliothèque ?`, "Retirer")) return;
+      const previous = items;
       items = items.filter(x => x.id !== it.id);
+      if (!persist()) {
+        items = previous;
+        db.items = previous;
+        showToast(ic("alert") + " Suppression impossible : stockage local indisponible.");
+        return;
+      }
       closeModal();
-      persist();
       refreshAll();
       buildHeroStack();
       showToast(`${ic("trash")} « ${esc(it.title)} » retiré.`);

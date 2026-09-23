@@ -71,7 +71,7 @@ Tous les fichiers sont sur la **[page des releases](https://github.com/DmzGaming
 
 > **🚀 Releases automatiques** : chaque tag `v*` déclenche la CI ([`.github/workflows/release.yml`](.github/workflows/release.yml)) qui build les 6 paquets (x64 + arm64) et publie la release — zéro build local.
 >
-> **🔄 Mises à jour automatiques (AppImage x64 et arm64)** : lance l'AppImage depuis un dossier accessible en écriture (par exemple `~/Applications`), avec une connexion Internet. Au lancement puis toutes les six heures si elle reste ouverte, l'application cherche une nouvelle release GitHub, la télécharge en arrière-plan et l'installe à la **fermeture normale**, une fois le téléchargement terminé. La prochaine ouverture utilise la nouvelle version. Si l'app est fermée avant la fin du téléchargement, elle réessaiera au lancement suivant. Les erreurs sont consignées dans `update-errors.log` dans le dossier de données de l'application.
+> **🔄 Mises à jour automatiques (AppImage x64 et arm64)** : lance l'AppImage depuis un dossier accessible en écriture (par exemple `~/Applications`), avec une connexion Internet. Au lancement puis toutes les six heures si elle reste ouverte, l'application cherche une nouvelle release GitHub et la télécharge en arrière-plan. Dès la fin du téléchargement, elle ferme et relance automatiquement l'application avec la nouvelle version. **Toute saisie non enregistrée est perdue lors de cette relance** : termine tes modifications avant de laisser l'application ouverte longtemps. Si l'app est fermée avant la fin du téléchargement, elle réessaiera au lancement suivant. Les erreurs sont consignées dans `update-errors.log` dans le dossier de données de l'application.
 >
 > **Si tu utilises déjà un `.deb` ou un `tar.gz`** : ces formats ne se mettent pas à jour automatiquement ici. Pour ne plus retélécharger les versions à la main, sauvegarde d'abord ta bibliothèque en JSON puis passe **une fois** à l'AppImage correspondant à ton architecture (sur la page des releases). Sinon, il faudrait mettre en place un dépôt APT pour le `.deb`. Si une ancienne installation ne reçoit pas encore les mises à jour, installe une fois la nouvelle AppImage pour amorcer ce mécanisme.
 
@@ -85,7 +85,7 @@ npm run dist:linux        # AppImage + tar.gz + .deb (x64)
 npm run dist:linux:arm64  # idem pour ARM64
 ```
 
-La version **0.1.1** est déjà préparée dans `package.json` : après validation, publier le code sous le tag `v0.1.1` pour déclencher la release (ne pas lancer `npm version patch` avant cette première publication). Pour les versions suivantes, versionner et publier une mouture :
+Pour publier une nouvelle version après validation, incrémenter la version, créer le tag et le pousser :
 
 ```bash
 npm version patch         # bump package.json + tag vX.Y.Z

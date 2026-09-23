@@ -78,53 +78,100 @@ const Store = (() => {
   }
 
   /* ─────────── Validation d'un état importé ─────────── */
+  const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+  const integer = value => Number.isSafeInteger(value);
+  const day = value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  const optional = (obj, key, check) => !Object.hasOwn(obj, key) || check(obj[key]);
+  const oneOf = (...values) => value => values.includes(value);
+  const nonNegative = value => integer(value) && value >= 0;
+  const text = value => typeof value === "string";
+  const color = value => typeof value === "string" && /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(value);
+  const COLOR = "#7c5cff";
+
   function valid(state) {
-    if (!state || typeof state !== "object") return false;
-    if (!Array.isArray(state.items)) return false;
-    if (!state.items.length) return false;
-    return state.items.every(it =>
-      it && typeof it === "object" &&
-      typeof it.title === "string" && it.title.trim() &&
-      typeof it.author === "string"
-    );
+    if (!object(state) || !Array.isArray(state.items) ||
+        !optional(state, "v", oneOf(VER)) ||
+        !optional(state, "app", oneOf("inkvault")) ||
+        !optional(state, "goal", n => integer(n) && n > 0) ||
+        !optional(state, "activity", activity => object(activity) &&
+          Object.entries(activity).every(([date, count]) => day(date) && nonNegative(count))) ||
+        !optional(state, "prefs", prefs => object(prefs) &&
+          optional(prefs, "filter", oneOf("all", "__fav", "Manga", "Comic", "Webtoon", "Graphic Novel")) &&
+          optional(prefs, "sort", oneOf("title", "rating", "year", "progress", "fav", "added")) &&
+          optional(prefs, "view", oneOf("grid", "list")) &&
+          optional(prefs, "mode", oneOf("text", "vibe")) &&
+          optional(prefs, "skin", oneOf("ink", "vintage", "gotham", "batman", "onepiece", "claire")) &&
+          optional(prefs, "sb", n => typeof n === "number" && Number.isFinite(n) && n >= 0))) return false;
+
+    const ids = new Set();
+    return state.items.every(it => {
+      if (!object(it) || !integer(it.id) || it.id <= 0 || ids.has(it.id) ||
+          !text(it.title) || !it.title.trim() || !text(it.author) ||
+          !optional(it, "format", oneOf("Manga", "Comic", "Webtoon", "Graphic Novel")) ||
+          !optional(it, "year", n => integer(n) && n >= 0) ||
+          !optional(it, "volumes", n => integer(n) && n > 0) ||
+          !optional(it, "read", nonNegative) ||
+          !optional(it, "rating", n => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 5) ||
+          !optional(it, "status", oneOf("Planifié", "En cours", "Terminé")) ||
+          !optional(it, "desc", text) || !optional(it, "review", text) ||
+          !optional(it, "fav", v => typeof v === "boolean") ||
+          !optional(it, "addedAt", day) ||
+          !optional(it, "finishedAt", v => v === null || day(v)) ||
+          !optional(it, "isbn", text) || !optional(it, "search", text) ||
+          !optional(it, "variant", text)) return false;
+      // Une couleur invalide est récupérable : elle sera neutralisée par normalize.
+      ids.add(it.id);
+      return !Object.hasOwn(it, "read") || it.read <= (it.volumes === undefined ? 1 : it.volumes);
+    });
   }
 
   function normalize(state) {
-    const out = Object.assign(seed(), state);
-    out.v = VER;
-    out.activity = out.activity && typeof out.activity === "object" ? out.activity : Object.create(null);
-    out.goal = Math.max(1, parseInt(out.goal) || 40);
-    out.prefs = Object.assign({ filter: "all", sort: "title", view: "grid" }, out.prefs || {});
-    out.items = out.items.map(it => Object.assign({
-      fav: false, review: "", addedAt: iso(new Date()), finishedAt: null
-    }, it));
+    const today = iso(new Date());
+    const out = {
+      v: VER,
+      activity: Object.assign(Object.create(null), state.activity || {}),
+      goal: state.goal === undefined ? 40 : state.goal,
+      prefs: Object.assign({ filter: "all", sort: "title", view: "grid" }, state.prefs || {}),
+      items: state.items.map(it => Object.assign({
+        format: "Comic", year: new Date().getFullYear(), volumes: 1, read: 0,
+        rating: 0, status: "Planifié", desc: "", fav: false, review: "",
+        addedAt: today, finishedAt: null
+      }, it, { color: color(it.color) ? it.color : COLOR }))
+    };
     return out;
   }
 
   /* ─────────── Lecture / écriture ─────────── */
   function load() {
-    let raw = null;
-    try { raw = localStorage.getItem(KEY); } catch (e) { return normalize(seed()); }
-    if (!raw) {
-      // premier lancement : on grave tout de suite le seed sur le disque
+    let raw;
+    try { raw = localStorage.getItem(KEY); }
+    catch (e) { throw new Error("[InkVault] Stockage inaccessible : bibliothèque non chargée.", { cause: e }); }
+    if (raw === null) {
+      // Premier lancement seulement : ne jamais substituer le seed à une sauvegarde existante.
       const fresh = normalize(seed());
-      save(fresh);
+      if (!save(fresh)) throw new Error("[InkVault] Stockage inaccessible : bibliothèque de démonstration non enregistrée.");
       return fresh;
     }
 
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed.v !== VER || !valid(parsed)) return normalize(seed());
-      return normalize(parsed);
-    } catch (e) {
-      return normalize(seed());
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch (e) { throw new Error("[InkVault] Sauvegarde illisible : données conservées dans localStorage, aucune écriture effectuée.", { cause: e }); }
+    if (!valid(parsed)) {
+      throw new Error("[InkVault] Sauvegarde invalide ou version incompatible : données conservées dans localStorage, aucune écriture effectuée.");
     }
+    return normalize(parsed);
   }
 
   function save(state) {
+    if (!valid(state)) {
+      console.warn("[InkVault] Sauvegarde refusée : état invalide.");
+      return false;
+    }
     try {
+      const serialized = JSON.stringify(normalize(state));
+      localStorage.setItem(KEY, serialized);
       state.v = VER;
-      localStorage.setItem(KEY, JSON.stringify(state));
       return true;
     } catch (e) {
       console.warn("[InkVault] Sauvegarde impossible :", e && e.name);

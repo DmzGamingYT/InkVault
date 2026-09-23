@@ -11,10 +11,14 @@ const Covers = (() => {
   const STORE_KEY = "ink-covers-v2";
 
   /* ── Caches ── */
-  let persisted = {};
-  try { persisted = JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); }
-  catch (e) { persisted = {}; }
+  let persisted = Object.create(null);
+  try {
+    const cached = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+    if (cached && typeof cached === "object" && !Array.isArray(cached))
+      persisted = Object.assign(Object.create(null), cached);
+  } catch (e) { /* Un cache illisible ne doit pas bloquer les recherches. */ }
   const memory = Object.create(null);          // succès + échecs de la session
+  const inFlight = new Map();                   // recherches simultanées par ouvrage
   const dead   = new Set();                    // sources coupées pour la session
 
   const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(persisted)); } catch (e) {} };
@@ -291,14 +295,20 @@ const Covers = (() => {
   function resolve(item) {
     const key = keyOf(item);
     if (key in memory) return Promise.resolve(memory[key]);
-    if (persisted[key]) { memory[key] = persisted[key]; return Promise.resolve(persisted[key]); }
+    if (typeof persisted[key] === "string" && persisted[key]) {
+      memory[key] = persisted[key];
+      return Promise.resolve(persisted[key]);
+    }
+    if (inFlight.has(key)) return inFlight.get(key);
 
     const plan = PLANS[item.format] || PLANS["Comic"];
-    return LANES[plan.lane](() => lookup(item), plan.delay).then(url => {
+    const pending = LANES[plan.lane](() => lookup(item), plan.delay).then(url => {
       memory[key] = url || null;
       if (url) { persisted[key] = url; save(); }
       return url || null;
-    });
+    }).finally(() => inFlight.delete(key));
+    inFlight.set(key, pending);
+    return pending;
   }
 
   function warmAll(list) { list.forEach(resolve); }

@@ -210,6 +210,7 @@ img{ display:block; max-width:100%; }
 .nav__name em{ font-style:normal; color:var(--accent); }
 
 .nav__links{ display:flex; gap:4px; }
+.nav__links--mobile{ display:none; }
 .nav__link{
   position:relative;
   padding:9px 16px; border-radius:99px;
@@ -1218,7 +1219,16 @@ section{ position:relative; z-index:3; padding:clamp(70px,9vw,124px) clamp(20px,
 
 /* ══════════ RESPONSIVE NAV ══════════ */
 @media (max-width:880px){
-  .nav__links{ display:none; }
+  body{ padding-bottom:66px; }
+  .nav .nav__links{ display:none; }
+  .nav__links--mobile{
+    position:fixed; bottom:0; left:0; right:0; z-index:700;
+    display:flex; justify-content:space-around; gap:0;
+    padding:7px 4px max(7px, env(safe-area-inset-bottom));
+    background:var(--surface); border-top:1px solid var(--line);
+    overflow-x:auto;
+  }
+  .nav__link{ padding:10px 8px; font-size:12px; white-space:nowrap; }
 }
 @media (max-width:560px){
   .nav__actions .btn{ display:none; }

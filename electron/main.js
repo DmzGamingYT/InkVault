@@ -5,6 +5,7 @@
 
 const { app, BrowserWindow, shell, dialog, ipcMain } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const fsp = require("fs/promises");
 const { pathToFileURL } = require("url");
 
@@ -49,26 +50,59 @@ ipcMain.handle("iv:confirm", async (event, message, okLabel) => {
   return response === 1;
 });
 
-/* AppImage Linux uniquement : .deb et tar.gz n'ont pas de mise à jour intégrée.
-   Une version téléchargée est installée à la fermeture normale de l'app. */
-function initUpdater() {
-  if (!app.isPackaged || process.platform !== "linux" || !process.env.APPIMAGE ||
-      !["x64", "arm64"].includes(process.arch)) return;
+const isAppImage = () => app.isPackaged && process.platform === "linux" &&
+  !!process.env.APPIMAGE && ["x64", "arm64"].includes(process.arch);
 
-  // Conserver les erreurs sans interrompre la lecture ni afficher de dialogue.
-  const logError = error => {
-    const message = `[${new Date().toISOString()}] ${String(error && (error.stack || error.message) || error)}\n`;
-    fsp.appendFile(path.join(app.getPath("userData"), "update-errors.log"), message).catch(() => {});
-  };
+// Conserver les erreurs sans interrompre la lecture ni afficher de dialogue.
+const logError = error => {
+  const message = `[${new Date().toISOString()}] ${String(error && (error.stack || error.message) || error)}\n`;
+  fsp.appendFile(path.join(app.getPath("userData"), "update-errors.log"), message).catch(() => {});
+};
+
+/* AppImage Linux uniquement : téléchargement en arrière-plan, puis installation
+   silencieuse et relance dès que la nouvelle version est prête. */
+function initUpdater() {
+  if (!isAppImage()) return;
 
   let autoUpdater;
   try { autoUpdater = require("electron-updater").autoUpdater; }
   catch (e) { logError(e); return; }
   autoUpdater.logger = { info() {}, warn: logError, error: logError, debug() {} };
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on("error", logError);
-  const check = () => Promise.resolve().then(() => autoUpdater.checkForUpdates()).catch(logError);
+  autoUpdater.autoInstallOnAppQuit = false;
+  let checking = false, installing = false, invokingInstall = false, installFailed = false;
+  autoUpdater.on("error", error => {
+    if (invokingInstall) installFailed = true;
+    logError(error);
+  });
+  autoUpdater.on("update-downloaded", () => {
+    if (installing) return;
+    const file = process.env.APPIMAGE;
+    try {
+      if (!path.isAbsolute(file) || !fs.statSync(file).isFile())
+        throw new Error("AppImage introuvable : " + file);
+      fs.accessSync(path.dirname(file), fs.constants.W_OK);
+    } catch (e) { logError(e); return; }
+    installing = true;
+    invokingInstall = true;
+    installFailed = false;
+    // Le second true force la relance même quand l'installation est silencieuse.
+    try { autoUpdater.quitAndInstall(true, true); }
+    catch (e) { installFailed = true; logError(e); }
+    finally {
+      invokingInstall = false;
+      if (installFailed) installing = false;
+    }
+  });
+  const check = async () => {
+    if (checking || installing) return;
+    checking = true;
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      if (result && result.downloadPromise) await result.downloadPromise;
+    } catch (e) { logError(e); }
+    finally { checking = false; }
+  };
   check();
   setInterval(check, 6 * 60 * 60 * 1000).unref();
 }
@@ -112,15 +146,13 @@ function createWindow() {
   });
 }
 
-/* Une seule instance : double lancement → on focuses la fenêtre existante */
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
+/* L'updater démarre la nouvelle AppImage avant que l'ancienne ait libéré le
+   verrou mono-instance. Elle attend le verrou au lieu de disparaître. */
+function startApp() {
   app.on("second-instance", () => {
     const w = BrowserWindow.getAllWindows()[0];
     if (w) { if (w.isMinimized()) w.restore(); w.focus(); }
   });
-
   app.whenReady().then(() => {
     createWindow();
     initUpdater();
@@ -129,6 +161,19 @@ if (!app.requestSingleInstanceLock()) {
     });
   });
 }
+
+if (app.requestSingleInstanceLock()) startApp();
+else if (isAppImage() && process.env.APPIMAGE_SILENT_INSTALL === "true") {
+  let tries = 0;
+  const retry = setInterval(() => {
+    if (app.requestSingleInstanceLock()) { clearInterval(retry); startApp(); }
+    else if (++tries >= 60) {
+      clearInterval(retry);
+      logError(new Error("Relance AppImage impossible : verrou mono-instance indisponible après 30 s"));
+      app.quit();
+    }
+  }, 500);
+} else app.quit();
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
