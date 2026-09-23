@@ -6,6 +6,7 @@
 const { app, BrowserWindow, shell, dialog, ipcMain } = require("electron");
 const path = require("path");
 const fsp = require("fs/promises");
+const { pathToFileURL } = require("url");
 
 /* Export PDF natif : boîte de sauvegarde + printToPDF sur une fenêtre éphémère */
 ipcMain.handle("iv:save-pdf", async (event, html, defaultName) => {
@@ -48,23 +49,28 @@ ipcMain.handle("iv:confirm", async (event, message, okLabel) => {
   return response === 1;
 });
 
-/* ══ Mises à jour silencieuses (electron-updater) ══
-   Vérifiées AU LANCEMENT, téléchargées en arrière-plan, installées au
-   prochain redémarrage — aucun message visible.
-   • Fonctionne avec l'AppImage (seule cible Linux auto-actualisable) ;
-     .deb / tar.gz : pas d'auto-update (réinstallation via la release).
-   • x64 uniquement : la CI publie un unique latest-linux.yml constrduit
-     en dernier sur x64 — sur arm64 il indiquerait le mauvais binaire. */
+/* AppImage Linux uniquement : .deb et tar.gz n'ont pas de mise à jour intégrée.
+   Une version téléchargée est installée à la fermeture normale de l'app. */
 function initUpdater() {
-  if (!app.isPackaged || process.arch !== "x64") return;
+  if (!app.isPackaged || process.platform !== "linux" || !process.env.APPIMAGE ||
+      !["x64", "arm64"].includes(process.arch)) return;
+
+  // Conserver les erreurs sans interrompre la lecture ni afficher de dialogue.
+  const logError = error => {
+    const message = `[${new Date().toISOString()}] ${String(error && (error.stack || error.message) || error)}\n`;
+    fsp.appendFile(path.join(app.getPath("userData"), "update-errors.log"), message).catch(() => {});
+  };
+
   let autoUpdater;
-  try { autoUpdater = require("electron-updater").autoUpdater; } catch (e) { return; }
-  autoUpdater.logger = { info() {}, warn() {}, error() {}, debug() {} };
+  try { autoUpdater = require("electron-updater").autoUpdater; }
+  catch (e) { logError(e); return; }
+  autoUpdater.logger = { info() {}, warn: logError, error: logError, debug() {} };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on("error", () => {});              // hors ligne : on ignore
-  autoUpdater.on("update-downloaded", () => {});  // rien à l'écran : install au prochain lancement
-  try { autoUpdater.checkForUpdates(); } catch (e) {}
+  autoUpdater.on("error", logError);
+  const check = () => Promise.resolve().then(() => autoUpdater.checkForUpdates()).catch(logError);
+  check();
+  setInterval(check, 6 * 60 * 60 * 1000).unref();
 }
 
 function createWindow() {
@@ -84,7 +90,9 @@ function createWindow() {
     }
   });
 
-  win.loadFile(path.join(__dirname, "..", "index.html"));
+  const indexPath = path.join(__dirname, "..", "index.html");
+  const indexUrl = pathToFileURL(indexPath);
+  win.loadFile(indexPath);
 
   /* Les liens sortants (enseignes, Archive.org…) s'ouvrent dans le navigateur */
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -92,11 +100,15 @@ function createWindow() {
     return { action: "deny" };
   });
 
-  /* Filet de sécurité : l'app ne quitte JAMAIS sa coquille.
-     Même un lien sans target="_blank" ne détourne pas la fenêtre. */
+  /* Seul le document de l'application peut rester dans la fenêtre. */
   win.webContents.on("will-navigate", (e, url) => {
-    if (/^https?:\/\//i.test(url)) { e.preventDefault(); shell.openExternal(url); }
-    else if (!/^file:/i.test(url)) e.preventDefault();
+    if (/^https?:\/\//i.test(url)) { e.preventDefault(); shell.openExternal(url); return; }
+    try {
+      const target = new URL(url);
+      if (target.protocol === "file:" && !target.host && !target.search &&
+          target.pathname === indexUrl.pathname) return;
+    } catch (err) { /* navigation invalide */ }
+    e.preventDefault();
   });
 }
 

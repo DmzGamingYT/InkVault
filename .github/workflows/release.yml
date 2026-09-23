@@ -33,28 +33,47 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: 🔎 Vérifier le tag avant le build
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          test "$GITHUB_REF_NAME" = "v$VER" || { echo "✖ Tag $GITHUB_REF_NAME != v$VER"; exit 1; }
+
       - name: 📦 Dépendances
         run: npm ci --no-audit --no-fund
+
+      - name: 🧪 Tests
+        run: npm test
 
       # ── arm64 d'abord, puis x64 : séquence éprouvée localement,
       #    les deux arches cohabitent dans dist/ sans s'effacer ──
       - name: 🏗️ Build arm64 (AppImage + tar.gz)
-        run: npx electron-builder --linux AppImage tar.gz --arm64
+        run: npx electron-builder --linux AppImage tar.gz --arm64 --publish never
 
       - name: 📦 .deb arm64 (make-deb.sh, sans fpm)
         run: ./scripts/make-deb.sh arm64
 
       - name: 🏗️ Build x64 (AppImage + tar.gz)
-        run: npx electron-builder --linux AppImage tar.gz --x64
+        run: npx electron-builder --linux AppImage tar.gz --x64 --publish never
 
       - name: 📦 .deb x64 (make-deb.sh, sans fpm)
         run: ./scripts/make-deb.sh x64
 
-      - name: ✅ Inventaire des 6 artefacts
+      - name: ✅ Vérifier les paquets et métadonnées de mise à jour
         run: |
+          set -euo pipefail
+          VER="$(node -p "require('./package.json').version")"
           ls -lh dist/*.AppImage dist/*.deb dist/*.tar.gz
           count=$(ls dist/*.AppImage dist/*.deb dist/*.tar.gz | wc -l)
           test "$count" -eq 6 || { echo "✖ $count artefacts au lieu de 6"; exit 1; }
+          for arch in x86_64 arm64; do
+            image="dist/InkVault-${VER}-linux-${arch}.AppImage"
+            metadata="dist/latest-linux.yml"
+            if [ "$arch" = arm64 ]; then metadata="dist/latest-linux-arm64.yml"; fi
+            test -s "$image" && test -s "$metadata" || { echo "✖ AppImage ou métadonnées $arch absentes"; exit 1; }
+            grep -Fq "$(basename "$image")" "$metadata" || { echo "✖ $metadata ne pointe pas vers $image"; exit 1; }
+            grep -Eq '^[[:space:]]*sha512:' "$metadata" || { echo "✖ checksum manquant dans $metadata"; exit 1; }
+          done
 
       - name: 🚀 Publication de la release
         if: startsWith(github.ref, 'refs/tags/')
@@ -62,20 +81,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          VER="$(node -p "require('./package.json').version")"
-          if [ "$TAG" != "v$VER" ]; then
-            echo "⚠️  Le tag $TAG ne correspond pas à package.json (v$VER)"
-          fi
-          ASSETS=(dist/*.AppImage dist/*.deb dist/*.tar.gz)
-          # electron-updater a besoin de latest-linux.yml (+ blockmaps) comme assets de la release
-          for extra in dist/latest-linux.yml dist/*.blockmap; do
+          ASSETS=(dist/*.AppImage dist/*.deb dist/*.tar.gz
+                  dist/latest-linux.yml dist/latest-linux-arm64.yml)
+          for extra in dist/*.blockmap; do
             if [ -e "$extra" ]; then ASSETS+=("$extra"); fi
           done
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG déjà existante → mise à jour des assets"
-            gh release upload "$TAG" "${ASSETS[@]}" --clobber
-          else
-            gh release create "$TAG" "${ASSETS[@]}" \
-              --title "InkVault ${TAG}" \
-              --generate-notes
+            echo "✖ La release $TAG existe déjà : créer un nouveau numéro de version plutôt que remplacer des binaires distribués."
+            exit 1
           fi
+          gh release create "$TAG" "${ASSETS[@]}" \
+            --title "InkVault ${TAG}" \
+            --generate-notes

@@ -6,7 +6,7 @@
 ![Plateforme](https://img.shields.io/badge/platform-Linux%20%C2%B7%20x64%20%7C%20arm64-2ea44f)
 
 **Comics, mangas et webtoons : catalogue, notes, progression, statistiques — et une IA de recommandation qui tourne localement, enrichie par de vraies API publiques quand elle est en ligne.**
-Site statique en HTML/CSS/JS pur + coquille **desktop Electron pour Linux**. Aucune donnée ne quitte ton appareil.
+Site statique en HTML/CSS/JS pur + coquille **desktop Electron pour Linux**. Ta bibliothèque est enregistrée localement ; les couvertures, fiches auteurs et polices peuvent nécessiter des requêtes réseau.
 
 ## 🎨 Les 6 thèmes graphiques
 
@@ -47,13 +47,13 @@ Un clic sur **🎨** dans la barre du haut — le thème s'applique partout et s
 
 ## ✨ Fonctionnalités
 
-- **Catalogue** : grille/liste, filtres, favoris, recherche floue, notes, progression par tome.
+- **Catalogue** : grille/liste, filtres, favoris, recherche par titre ou auteur, notes, progression par tome.
 - **✦ Recherche par ambiance** : « un seinen sombre avec de la philosophie et de l'encre détaillée » → décomposition en facets + classement par affinité (%).
 - **✦ Ordres de lecture** : fils conducteurs pas-à-pas (Hickman, Marvel Cosmic, DC Crises…), croisés avec ta bibliothèque, copiables.
 - **✦ Insights & Profil de lecture** : résumés mensuels générés localement, penchants, suggestion de relecture.
 - **✦ Smart Buy** : optimiseur de panier sous budget (knapsack) — « J'ai 50 € » → la meilleure combinaison de tomes.
 - **🌐 Fiches Auteurs 360°** : rôles par œuvre (scénario/dessin), style & thèmes, jauge de bibliographie, auteurs similaires, binômes célèbres — **bio Wikipédia et bibliographie complète enrichies en direct** (Open Library + Google Books, cache 7 jours, repli hors ligne sur la base locale).
-- **🖼 Fiche livre immersive** : galerie de planches, variantes d'édition persistées, **double timeline** publication vs chronologie d'univers (9 chronologies codées).
+- **🖼 Fiche livre immersive** : galerie de visuels illustratifs, variantes d'édition persistées, **double timeline** publication vs chronologie d'univers.
 - **🛒 Où l'acheter ?** : liens multi-enseignes (Fnac, Amazon, BDFugue, Place des Libraires, Canal BD… + occasion Vinted, Rakuten, momox) avec recherche pré-remplie, prêts pour l'affiliation.
 - **⤓ Export** : bibliothèque **et** ordres de lecture en **Markdown** ou **PDF** (dialogue natif sur desktop, boîte d'impression en ligne) + sauvegarde JSON complète.
 - **➕ Ajout au clic** : dans la bibliographie live d'un auteur, un clic sur un titre l'ajoute à ta collection (couverture résolue automatiquement).
@@ -71,7 +71,9 @@ Tous les fichiers sont sur la **[page des releases](https://github.com/DmzGaming
 
 > **🚀 Releases automatiques** : chaque tag `v*` déclenche la CI ([`.github/workflows/release.yml`](.github/workflows/release.yml)) qui build les 6 paquets (x64 + arm64) et publie la release — zéro build local.
 >
-> **🔄 Mises à jour silencieuses** : l'AppImage vérifie les nouvelles versions au lancement via `electron-updater`, télécharge en arrière-plan et installe au prochain redémarrage — rien à faire, rien à l'écran. (`.deb` et `tar.gz` : réinstallation via la release.)
+> **🔄 Mises à jour automatiques (AppImage x64 et arm64)** : lance l'AppImage depuis un dossier accessible en écriture (par exemple `~/Applications`), avec une connexion Internet. Au lancement puis toutes les six heures si elle reste ouverte, l'application cherche une nouvelle release GitHub, la télécharge en arrière-plan et l'installe à la **fermeture normale**, une fois le téléchargement terminé. La prochaine ouverture utilise la nouvelle version. Si l'app est fermée avant la fin du téléchargement, elle réessaiera au lancement suivant. Les erreurs sont consignées dans `update-errors.log` dans le dossier de données de l'application.
+>
+> **Si tu utilises déjà un `.deb` ou un `tar.gz`** : ces formats ne se mettent pas à jour automatiquement ici. Pour ne plus retélécharger les versions à la main, sauvegarde d'abord ta bibliothèque en JSON puis passe **une fois** à l'AppImage correspondant à ton architecture (sur la page des releases). Sinon, il faudrait mettre en place un dépôt APT pour le `.deb`. Si une ancienne installation ne reçoit pas encore les mises à jour, installe une fois la nouvelle AppImage pour amorcer ce mécanisme.
 
 ## 🛠 Développement
 
@@ -83,7 +85,7 @@ npm run dist:linux        # AppImage + tar.gz + .deb (x64)
 npm run dist:linux:arm64  # idem pour ARM64
 ```
 
-Versionner et publier une mouture :
+La version **0.1.1** est déjà préparée dans `package.json` : après validation, publier le code sous le tag `v0.1.1` pour déclencher la release (ne pas lancer `npm version patch` avant cette première publication). Pour les versions suivantes, versionner et publier une mouture :
 
 ```bash
 npm version patch         # bump package.json + tag vX.Y.Z
@@ -106,7 +108,7 @@ git push --follow-tags    # → CI build & publie la release (~5 min)
 
 ## 🔒 Confidentialité
 
-Aucune donnée ne quitte ton appareil : le catalogue, les notes et toute l'IA tournent en local. Seuls appels réseau facultatifs : **couvertures** (AniList, Open Library, Google Books) et **enrichissement des fiches auteurs** (Wikipédia, Open Library) — tous avec cache local de 7 jours et repli silencieux hors ligne.
+La bibliothèque, les notes et les calculs de recommandation restent en local. Une connexion est utilisée pour la recherche de couvertures, l'enrichissement des fiches auteurs, les polices Google au chargement et la recherche de mises à jour sur GitHub (AppImage). Ces services peuvent recevoir les titres/auteurs recherchés et des informations réseau comme l'adresse IP. Les fiches auteurs disposent d'un cache local de 7 jours et d'un repli hors ligne.
 
 ## 📝 Licence
 

@@ -8,9 +8,8 @@
    ✦ AI.shopOf        → « Où l'acheter ? » (neuf + occasion, liens affiliation)
    ✦ AI.smartBuy      → optimiseur de panier sous budget
 
-   Le fonctionnement est déterministe : un lexique de concepts,
-   une base de connaissances sur les ouvrages / auteurs, puis
-   du scoring. Aucune donnée ne sort du navigateur.
+   Les recommandations locales utilisent un lexique et une base de connaissances ;
+   les fiches auteurs peuvent être enrichies par des API publiques.
    ══════════════════════════════════════════════════════════ */
 
 const AI = (() => {
@@ -1756,11 +1755,25 @@ const AI = (() => {
       } catch (e) { return []; }
     }
 
+    function withOwnership(data, name, items) {
+      const libNorms = (items || []).filter(i => i.author === name).map(i => nrm(i.title));
+      const works = data.works.map(w => {
+        const k = nrm(w.t);
+        const exact = libNorms.includes(k);
+        const series = !exact && libNorms.some(l => l.length > 3 && (k.startsWith(l) || l.startsWith(k)));
+        return { ...w, exact, series };
+      });
+      return { ...data, works, total: works.length,
+        exact: works.filter(w => w.exact).length,
+        series: works.filter(w => w.series).length };
+    }
+
     async function authorLive(name, items) {
-      /* Cache 7 jours */
+      /* Cache 7 jours pour les données distantes, pas pour la collection */
       let cached = null;
       if (LS) { try { cached = JSON.parse(LS.getItem(ck(name)) || "null"); } catch (e) {} }
-      if (cached && cached.data && Date.now() - cached.at < TTL) return cached.data;
+      if (cached && cached.data && Date.now() - cached.at < TTL)
+        return withOwnership(cached.data, name, items);
 
       const [wiki, auth, search, gb] = await Promise.all([
         wikiBio(name), olAuthority(name), olWorks(name), gbWorks(name)
@@ -1779,14 +1792,8 @@ const AI = (() => {
         else if (!prev.c && w.c) map.set(k, { t: w.t, y: prev.y || w.y, c: w.c });
       });
 
-      /* Croisement avec la collection : exact = possédé, series = série suivie */
-      const libNorms = (items || []).filter(i => i.author === name).map(i => nrm(i.title));
-      const works = [...map.values()].map(w => {
-        const k = nrm(w.t);
-        const exact = libNorms.includes(k);
-        const series = !exact && libNorms.some(l => l.length > 3 && (k.startsWith(l) || l.startsWith(k)));
-        return { t: w.t, y: w.y, c: w.c, exact, series };
-      }).sort((a, b) => ((a.y || 9999) - (b.y || 9999)) || a.t.localeCompare(b.t));
+      const works = [...map.values()]
+        .sort((a, b) => ((a.y || 9999) - (b.y || 9999)) || a.t.localeCompare(b.t));
 
       /* Mots-clés réels : fréquence des subjects du corpus par clé.
          Préfixes structurés OL ("genre:dark fantasy") déballés,
@@ -1812,9 +1819,6 @@ const AI = (() => {
         ol: auth,
         workCount: (auth && auth.workCount) || (kw && kw.size) || 0,
         works,
-        total: works.length,
-        exact: works.filter(w => w.exact).length,
-        series: works.filter(w => w.series).length,
         subjects,
         binomes: search.co,
         src: [
@@ -1825,7 +1829,7 @@ const AI = (() => {
       };
 
       if (LS) { try { LS.setItem(ck(name), JSON.stringify({ at: Date.now(), data })); } catch (e) {} }
-      return data;
+      return withOwnership(data, name, items);
     }
 
     return { authorLive };

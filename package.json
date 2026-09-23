@@ -1,7 +1,7 @@
 {
   "name": "inkvault",
   "productName": "InkVault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bibliothèque comics & mangas — catalogue, stats et IA locale, en app desktop",
   "main": "electron/main.js",
   "author": "DmzGamingYT",
@@ -13,8 +13,9 @@
   },
   "scripts": {
     "start": "electron .",
-    "dist:linux": "electron-builder --linux AppImage tar.gz && ./scripts/make-deb.sh x64",
-    "dist:linux:arm64": "electron-builder --linux AppImage tar.gz --arm64 && ./scripts/make-deb.sh arm64"
+    "test": "node --test tests/*.test.js",
+    "dist:linux": "electron-builder --linux AppImage tar.gz --publish never && ./scripts/make-deb.sh x64",
+    "dist:linux:arm64": "electron-builder --linux AppImage tar.gz --arm64 --publish never && ./scripts/make-deb.sh arm64"
   },
   "devDependencies": {
     "electron": "^33.0.0",

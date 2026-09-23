@@ -63,7 +63,7 @@ cat > "$STAGE/control/postinst" <<'EOF'
 #!/bin/sh
 set -e
 if [ -f /opt/InkVault/chrome-sandbox ]; then
-  chmod4755 /opt/InkVault/chrome-sandbox 2>/dev/null || true
+  chmod 4755 /opt/InkVault/chrome-sandbox
 fi
 command -v update-desktop-database >/dev/null 2>&1 \
   && update-desktop-database -q /usr/share/applications || true

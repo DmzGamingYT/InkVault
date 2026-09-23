@@ -1441,17 +1441,12 @@
       const it = items.find(x => x.id === state.openId); if (it) toggleFav(it.id);
     });
 
-    // Avis personnel (sauvegarde différée)
-    let revTimer;
+    // Avis personnel : enregistrer avant toute fermeture ou ouverture d'une autre fiche.
     $("#mReview").addEventListener("input", e => {
-      clearTimeout(revTimer);
-      const value = e.target.value;
-      revTimer = setTimeout(() => {
-        const it = items.find(x => x.id === state.openId); if (!it) return;
-        it.review = value.trim();
-        persist();
-        renderGrid(false);
-      }, 500);
+      const it = items.find(x => x.id === state.openId); if (!it) return;
+      it.review = e.target.value.trim();
+      persist();
+      renderGrid(false);
     });
 
     $("#mNext").addEventListener("click", () => {

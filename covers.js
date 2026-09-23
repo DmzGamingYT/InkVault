@@ -137,7 +137,7 @@ const Covers = (() => {
   /* ══════════ Source : Google Books ══════════ */
   async function fromGoogle(item) {
     const base = "https://www.googleapis.com/books/v1/volumes?country=US&maxResults=8&";
-    const q1 = encodeURIComponent(`intitle:"${item.title}" inuthor:"${item.author}"`);
+    const q1 = encodeURIComponent(`intitle:"${item.title}" inauthor:"${item.author}"`);
     let data = await getJSON(base + "q=" + q1 + "&printType=books");
     if (!data || !data.totalItems) {
       data = await getJSON(base + "q=" + encodeURIComponent(item.title + " " + item.author));
@@ -168,7 +168,10 @@ const Covers = (() => {
     if (!item.isbn) return null;
     const url = `https://covers.openlibrary.org/b/isbn/${item.isbn}-L.jpg?default=false`;
     const res = await fetch(url, { method: "GET" });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (res.status === 429 || res.status >= 500) throw new SrcError("HTTP " + res.status);
+      return null;
+    }
     const type = res.headers.get("content-type") || "";
     if (!/^image\//.test(type)) return null;
     return url;
@@ -276,9 +279,9 @@ const Covers = (() => {
         const url = await fn(item);
         if (url) return url;
       } catch (err) {
-        // 429 / 5xx / réseau → on coupe la source pour la session
+        // 404 par ouvrage : la source reste utilisable pour les autres recherches.
         const msg = String(err && err.message);
-        if (/HTTP 4|HTTP 5|aborted|Failed|Network/i.test(msg)) dead.add(name);
+        if (/\bHTTP (?:429|5\d\d)\b|aborted|Failed|Network/i.test(msg) || err?.name === "AbortError") dead.add(name);
       }
     }
     return null;
