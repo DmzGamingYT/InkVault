@@ -3,8 +3,9 @@ node_modules/
 dist/
 release/
 
-# Artefact de prévisualisation local (généré depuis index.html + CSS + JS)
+# Artefacts de prévisualisation / audit locaux (générés depuis index.html + CSS + JS)
 _preview.html
+_audit.html
 
 # Espace local de l'éditeur Freebuff
 .freebuff/

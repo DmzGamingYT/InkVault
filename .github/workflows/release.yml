@@ -67,6 +67,10 @@ jobs:
             echo "⚠️  Le tag $TAG ne correspond pas à package.json (v$VER)"
           fi
           ASSETS=(dist/*.AppImage dist/*.deb dist/*.tar.gz)
+          # electron-updater a besoin de latest-linux.yml (+ blockmaps) comme assets de la release
+          for extra in dist/latest-linux.yml dist/*.blockmap; do
+            if [ -e "$extra" ]; then ASSETS+=("$extra"); fi
+          done
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG déjà existante → mise à jour des assets"
             gh release upload "$TAG" "${ASSETS[@]}" --clobber

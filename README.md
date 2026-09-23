@@ -55,6 +55,8 @@ Un clic sur **🎨** dans la barre du haut — le thème s'applique partout et s
 - **🌐 Fiches Auteurs 360°** : rôles par œuvre (scénario/dessin), style & thèmes, jauge de bibliographie, auteurs similaires, binômes célèbres — **bio Wikipédia et bibliographie complète enrichies en direct** (Open Library + Google Books, cache 7 jours, repli hors ligne sur la base locale).
 - **🖼 Fiche livre immersive** : galerie de planches, variantes d'édition persistées, **double timeline** publication vs chronologie d'univers (9 chronologies codées).
 - **🛒 Où l'acheter ?** : liens multi-enseignes (Fnac, Amazon, BDFugue, Place des Libraires, Canal BD… + occasion Vinted, Rakuten, momox) avec recherche pré-remplie, prêts pour l'affiliation.
+- **⤓ Export** : bibliothèque **et** ordres de lecture en **Markdown** ou **PDF** (dialogue natif sur desktop, boîte d'impression en ligne) + sauvegarde JSON complète.
+- **➕ Ajout au clic** : dans la bibliographie live d'un auteur, un clic sur un titre l'ajoute à ta collection (couverture résolue automatiquement).
 - **🎨 6 thèmes** : Manga Ink, Comics Vintage, Gotham, Ligne Claire, Batman, One Piece.
 
 ## 📦 Installation — Linux
@@ -68,6 +70,8 @@ Un clic sur **🎨** dans la barre du haut — le thème s'applique partout et s
 Tous les fichiers sont sur la **[page des releases](https://github.com/DmzGamingYT/InkVault/releases)**.
 
 > **🚀 Releases automatiques** : chaque tag `v*` déclenche la CI ([`.github/workflows/release.yml`](.github/workflows/release.yml)) qui build les 6 paquets (x64 + arm64) et publie la release — zéro build local.
+>
+> **🔄 Mises à jour silencieuses** : l'AppImage vérifie les nouvelles versions au lancement via `electron-updater`, télécharge en arrière-plan et installe au prochain redémarrage — rien à faire, rien à l'écran. (`.deb` et `tar.gz` : réinstallation via la release.)
 
 ## 🛠 Développement
 
@@ -96,7 +100,7 @@ git push --follow-tags    # → CI build & publie la release (~5 min)
 | `ai.js` | **Moteur d'IA local** (vibe, reading orders, insights, smart buy, auteurs, timelines) + **enrichissements live** (Wikipédia, Open Library, Google Books, cache 7 j) |
 | `covers.js` | Résolution des couvertures (AniList / Jikan / Google Books / Open Library) |
 | `app.js` | Câblage de l'interface |
-| `electron/` | Coquille desktop (liens externes ouverts dans le navigateur, instance unique) |
+| `electron/` | Coquille desktop (instance unique, export PDF natif via `preload.js`, confirm système, auto-update) |
 | `scripts/` | `make-deb.sh` + `mk-ar.py` — fabrique de `.deb` sans fpm (macOS & Linux) |
 | `.github/workflows/` | `release.yml` — build & publication par tag |
 

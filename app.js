@@ -7,9 +7,20 @@
 
   const $  = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  /* Icône SVG du sprite (remplace les émojis d'interface) */
+  const ic = n => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const DAY = 86400000;
   const reduced = () => matchMedia("(prefers-reduced-motion:reduce)").matches;
   const canHover = () => matchMedia("(hover:hover)").matches;
+
+  /* Confirmation native : window.confirm n'existe PAS sous Electron
+     (il renvoie undefined → « Retirer »/« Import » semblaient morts).
+     On passe par la boîte de dialogue système via le preload. */
+  const confirmBox = (msg, okLabel) => {
+    const bridge = window.inkvault;
+    if (bridge && typeof bridge.confirmBox === "function") return bridge.confirmBox(msg, okLabel);
+    return Promise.resolve(window.confirm(msg));
+  };
 
   /* ─────────── ÉTAT ─────────── */
   let db    = Store.load();                       // persistance
@@ -140,7 +151,7 @@
       const b = e.target.closest("[data-skin]"); if (!b) return;
       applySkin(b.dataset.skin);
       setOpen(false);
-      showToast(`🎨  Thème « ${b.querySelector("b").textContent} » activé.`);
+      showToast(`${ic("palette")} Thème « ${esc(b.querySelector("b").textContent)} » activé.`);
     });
     document.addEventListener("click", e => {
       if (!pick.hidden && !e.target.closest(".skinwrap")) setOpen(false);
@@ -249,7 +260,7 @@
     $("#heroCount").textContent = total;
 
     const chip = $('#filters .chip[data-filter="__fav"]');
-    if (chip) chip.innerHTML = `♥ Favoris <b>${favs}</b>`;
+    if (chip) chip.innerHTML = `${ic("heart")} Favoris <b>${favs}</b>`;
   }
 
   /* ═══════════ GRILLE ═══════════ */
@@ -335,7 +346,7 @@
       card.innerHTML = `
         <button class="card__open" aria-label="Ouvrir la fiche">↗</button>
         <button class="fav${it.fav ? " is-on" : ""}" data-fav="${it.id}"
-                aria-pressed="${!!it.fav}" aria-label="Favori">♥</button>
+                aria-pressed="${!!it.fav}" aria-label="Favori">${ic("heart")}</button>
         <div class="card__cover" style="background:linear-gradient(155deg, ${it.color}, ${shade(it.color, -46)});">
           <div class="cover-scrim"></div>
           <span class="card__format">${esc(it.format)}</span>
@@ -488,6 +499,7 @@
     }
     if (state.filter === "__fav") renderGrid(false);
     renderMetrics();
+    buildHeroStack();
     if (state.openId === id) syncModalFav(it);
   }
 
@@ -533,9 +545,9 @@
     }));
 
     $("#resetFilters").addEventListener("click", resetFilters);
-    $("#btnExport").addEventListener("click", exportJSON);
     $("#btnImport").addEventListener("click", () => $("#fileImport").click());
     $("#fileImport").addEventListener("change", importJSON);
+    /* #btnExport est câblé par initExport() — menu JSON / Markdown / PDF */
 
     addEventListener("keydown", e => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -598,7 +610,7 @@
     a.download = `inkvault-${Store.iso(new Date())}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    showToast("💾  Export terminé — " + items.length + " ouvrages.");
+    showToast(ic("save") + " Export terminé — " + items.length + " ouvrages.");
   }
 
   function importJSON(e) {
@@ -606,13 +618,13 @@
     e.target.value = "";
     if (!file) return;
     const fr = new FileReader();
-    fr.onload = () => {
+    fr.onload = async () => {
       let data;
       try { data = JSON.parse(fr.result); }
-      catch (err) { showToast("⚠️  Fichier JSON illisible."); return; }
+      catch (err) {      showToast(ic("alert") + " Fichier JSON illisible."); return; }
 
-      if (!Store.valid(data)) { showToast("⚠️  Ce fichier n'est pas une sauvegarde InkVault valide."); return; }
-      if (!confirm(`Remplacer la bibliothèque actuelle par celle du fichier (${data.items.length} ouvrages) ?`)) return;
+      if (!Store.valid(data)) { showToast(ic("alert") + " Ce fichier n'est pas une sauvegarde InkVault valide."); return; }
+      if (!await confirmBox(`Remplacer la bibliothèque actuelle par celle du fichier (${data.items.length} ouvrages) ?`, "Importer")) return;
 
       db = Store.normalize(data);
       items = db.items;
@@ -632,7 +644,7 @@
 
       buildHeroStack();
       refreshAll();
-      showToast("📂  Import réussi — bibliothèque remplacée.");
+      showToast(ic("folder") + " Import réussi — bibliothèque remplacée.");
     };
     fr.readAsText(file);
   }
@@ -714,7 +726,7 @@
     bar.style.width = "0%";
 
     $("#chLeft").textContent = done >= goal
-      ? "Objectif atteint 🎉"
+      ? ic("check") + " Objectif atteint"
       : `${goal - done} restant${goal - done > 1 ? "s" : ""}`;
 
     const jan1 = new Date(year, 0, 1).getTime();
@@ -769,7 +781,7 @@
     let streak = 0, cursor = new Date(today);
     if (!(db.activity[Store.iso(cursor)])) cursor = new Date(today.getTime() - DAY);
     while (db.activity[Store.iso(cursor)]) { streak++; cursor = new Date(cursor.getTime() - DAY); }
-    $("#hmStreak").textContent = streak > 0 ? `🔥 ${streak} jour${streak > 1 ? "s" : ""} d'affilée` : "—";
+    $("#hmStreak").innerHTML = streak > 0 ? `${ic("bolt")} ${streak} jour${streak > 1 ? "s" : ""} d'affilée` : "—";
 
     const total = Object.values(db.activity).reduce((s, n) => s + n, 0);
     $("#hmTotal").textContent = `${total} sessions`;
@@ -821,7 +833,7 @@
       const f = new FormData(e.target);
       const title  = (f.get("title")  || "").toString().trim();
       const author = (f.get("author") || "").toString().trim();
-      if (!title || !author) { showToast("⚠️  Le titre et l'auteur sont obligatoires."); return; }
+      if (!title || !author) { showToast(ic("alert") + " Le titre et l'auteur sont obligatoires."); return; }
 
       const volumes = Math.max(1, parseInt(f.get("volumes")) || 1);
       const status  = f.get("status");
@@ -846,7 +858,8 @@
       items.unshift(item);
       persist();
       refreshAll();
-      showToast(`✅  « ${title} » ajouté à la bibliothèque !`);
+      buildHeroStack();
+      showToast(ic("check") + ` « ${esc(title)} » ajouté à la bibliothèque !`);
 
       e.target.reset();
       colorInput.value = "#7c5cff";
@@ -859,7 +872,7 @@
   let toastTimer;
   function showToast(msg) {
     const t = $("#toast");
-    t.textContent = msg;
+    t.innerHTML = msg;
     t.classList.add("is-on");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove("is-on"), 4000);
@@ -868,15 +881,19 @@
   /* ═══════════ FICHE AUTEUR 360° — RÉSEAU ARTISTIQUE ═══════════ */
   const amodal = $("#amodal");
   let liveSeq = 0;
+  let lastAuthor = null;          // dernière fiche ouverte (pour le croisement live)
+  let liveWorks = [];             // dernière bibliographie live affichée (clic → ajout)
+  let liveAuthor = null;          // auteur de cette bibliographie
 
   function openAuthor(name) {
     const d = AI.author(name, items);
+    lastAuthor = d;
 
     $("#amAva").textContent = name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
     $("#amName").textContent = d.name;
     $("#amRoles").innerHTML = d.roles.map(r => `<span class="am__role">${esc(r)}</span>`).join("") +
-      (d.favs ? `<span class="am__role">♥ ${d.favs} favori${d.favs > 1 ? "s" : ""}</span>` : "") +
-      (d.avg ? `<span class="am__role">★ ${d.avg.toFixed(1)}/5 dans ta collection</span>` : "");
+      (d.favs ? `<span class="am__role">${ic("heart")} ${d.favs} favori${d.favs > 1 ? "s" : ""}</span>` : "") +
+      (d.avg ? `<span class="am__role">${ic("star")} ${d.avg.toFixed(1)}/5 dans ta collection</span>` : "");
 
     $("#amBio").textContent = d.bio;
     $("#amTags").innerHTML = d.themes.length
@@ -940,15 +957,15 @@
       .then(d => { if (seq === liveSeq) paintAuthorLive(d, name); })
       .catch(() => {
         if (seq !== liveSeq) return;
-        $("#amLiveNote").textContent =
-          "📴 Hors ligne — la bibliographie locale documentée ci-dessus reste affichée.";
+      $("#amLiveNote").innerHTML =
+        `${ic("globe")} <span>Hors ligne — la bibliographie locale documentée ci-dessus reste affichée.</span>`;
       });
   }
 
   function resetAuthorLive() {
     const note = $("#amLiveNote");
     note.hidden = false;
-    note.textContent = "🔎 Interrogation de Wikipédia, Open Library & Google Books…";
+    note.innerHTML = `<span class="ic-wrap">${ic("search")}</span><span>Interrogation de Wikipédia, Open Library & Google Books…</span>`;
     $("#amLiveWorks").hidden = true;
     $("#amLiveWorks").innerHTML = "";
     $("#amLiveMore").hidden = true;
@@ -956,13 +973,20 @@
     $("#amLiveSrc").hidden = true;
     $("#amBioExt").hidden = true;
     $("#amBioExt").textContent = "";
+    $("#amSub").hidden = true;
+    $("#amSub").textContent = "";
+    $("#amSubjects").hidden = true;
+    $("#amSubjects").innerHTML = "";
+    $("#amApiGauge").hidden = true;
+    liveWorks = [];
+    liveAuthor = null;
   }
 
   function paintAuthorLive(d, name) {
     /* Bio d'introduction Wikipédia */
     if (d.bio && d.bio.extract) {
       const ext = $("#amBioExt");
-      ext.innerHTML = `<span class="am__src-pill">🌐 Wikipédia</span>${esc(d.bio.extract)}`;
+      ext.innerHTML = `<span class="am__src-pill">${ic("globe")} Wikipédia</span>${esc(d.bio.extract)}`;
       ext.hidden = false;
     }
 
@@ -970,28 +994,34 @@
     if (!d.works.length) {
       note.textContent = `Aucun titre trouvé en ligne pour ${name} — la bibliographie locale ci-dessus reste affichée.`;
       return;
+    } else {
+      note.innerHTML = `${ic("chart")} <span>${d.total} titre${d.total > 1 ? "s" : ""} référencé${d.total > 1 ? "s" : ""} en ligne` +
+        (d.exact ? ` · ${d.exact} dans ta collection` : "") +
+        (d.series ? ` · ${d.series} de tes séries suivies` : "") + `</span>`;
     }
-
-    note.textContent = `📊 ${d.total} titre${d.total > 1 ? "s" : ""} référencé${d.total > 1 ? "s" : ""} en ligne` +
-      (d.exact ? ` · ${d.exact} dans ta collection` : "") +
-      (d.series ? ` · ${d.series} de tes séries suivies` : "") + ".";
 
     const LIMIT = 15;
     let shown = LIMIT;
+    liveWorks = d.works || [];
+    liveAuthor = name;
     const ul = $("#amLiveWorks");
     const more = $("#amLiveMore");
-    const row = w => `
-      <li>
+    const row = (w, i) => {
+      const own = w.exact || inLibNow(w.t);
+      return `
+      <li${own ? ` class="is-own"` : ` data-addlive="${i}"`} title="${esc(own ? w.t + " — déjà dans ta collection" : "Clique pour ajouter « " + w.t + " » à ta bibliothèque")}">
         ${w.c
           ? `<img class="am__lc" src="${w.c}" alt="" loading="lazy" decoding="async">`
-          : `<span class="am__lc am__lc--ph">📖</span>`}
+          : `<span class="am__lc am__lc--ph" data-lc="${esc(w.t)}">${ic("book")}</span>`}
         <div class="am__work-b"><span class="am__work-t">${esc(w.t)}</span></div>
         <span class="am__work-s">${w.y || "—"}</span>
-        ${w.exact ? `<span class="am__b-own">✅ possédé</span>`
-          : w.series ? `<span class="am__b-ser">📚 série suivie</span>` : ""}
+        ${own ? `<span class="am__b-own">${ic("check")} possédé</span>`
+          : w.series ? `<span class="am__b-ser">${ic("book")} série suivie</span>`
+          : `<span class="am__add">+ Ajouter</span>`}
       </li>`;
+    };
     const render = () => {
-      ul.innerHTML = d.works.slice(0, shown).map(row).join("");
+      ul.innerHTML = d.works.slice(0, shown).map((w, i) => row(w, i)).join("");
       ul.hidden = false;
       const rest = d.works.length - shown;
       if (rest > 0) {
@@ -1005,9 +1035,83 @@
     render();
     more.onclick = () => { shown = shown > LIMIT ? LIMIT : d.works.length; render(); };
 
+    /* Titres sans couverture → résolution via l'API de couvertures
+       (AniList / Google Books / Open Library — lane selon le format de l'auteur) */
+    const lane = items.some(i => i.author === name && /manga|webtoon/i.test(i.format || ""))
+      ? "Manga" : "Comic";
+    $$("[data-lc]", ul).forEach(ph => {
+      Covers.resolve({ format: lane, title: ph.dataset.lc, author: name })
+        .then(url => {
+          if (!url || !ph.parentNode) return;
+          const img = document.createElement("img");
+          img.className = "am__lc"; img.alt = "";
+          img.loading = "lazy"; img.decoding = "async";
+          img.src = url;
+          ph.replaceWith(img);
+        })
+        .catch(() => {});
+    });
+
     const src = $("#amLiveSrc");
     src.textContent = "Sources : " + (d.src.join(" · ") || "—") + " · cache local 7 jours.";
     src.hidden = false;
+
+    /* Portrait (Wikipédia puis photo Open Library) — les initiales restent
+       dessous en repli si l'image ne charge pas */
+    if (d.photo) {
+      $("#amAva").insertAdjacentHTML("beforeend",
+        `<img class="am__ava-img" src="${d.photo}" alt="" loading="lazy" onerror="this.remove()">`);
+    }
+
+    /* Sous-titre : description Wikipédia + dates de l'autorité Open Library */
+    const sub = $("#amSub");
+    const subTxt = [
+      d.wikiDesc || "",
+      (d.ol && d.ol.date) ? `Open Library · ${d.ol.date}` : ""
+    ].filter(Boolean).join("  ·  ");
+    if (subTxt) { sub.textContent = subTxt; sub.hidden = false; }
+
+    /* Mots-clés réels : subjects les plus fréquents du corpus */
+    if (d.subjects && d.subjects.length) {
+      $("#amSubjects").innerHTML = d.subjects
+        .map(s => `<span class="am__tag am__tag--api">${esc(s)}</span>`).join("");
+      $("#amSubjects").hidden = false;
+    }
+
+    /* Jauge réelle : total d'œuvres de l'autorité Open Library */
+    if (d.workCount) {
+      const ownedR = d.exact;
+      const pctR = ownedR ? Math.max(1, Math.round((ownedR / d.workCount) * 100)) : 0;
+      const g2 = $("#amApiGauge");
+      g2.innerHTML = `${ic("chart")} <span>Autorité Open Library : ${d.workCount} œuvres référencées — tu en possèdes ${ownedR} (~${pctR}%).</span>`;
+      g2.hidden = false;
+
+      /* Auteur sans base locale (jauge en mode « progression ») :
+         la jauge principale passe sur le réel Open Library */
+      if (lastAuthor && lastAuthor.gauge.mode !== "biblio") {
+        const g = $("#amGauge");
+        $("#amGaugeVal").textContent = pctR + "%";
+        g.style.width = "0%";
+        setTimeout(() => { g.style.width = pctR + "%"; }, 140);
+        $("#amGaugeNote").textContent =
+          `Bibliographie réelle via Open Library : ${d.workCount} œuvres de ${lastAuthor.name} — ` +
+          `${ownedR} en main dans ta collection.`;
+      }
+    }
+
+    /* Binômes réels (co-auteurs Open Library) — sans doublon avec la base */
+    const nk = s => (s || "").toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    const kbD = (lastAuthor && lastAuthor.duos) || [];
+    const apiD = (d.binomes || []).filter(b => !kbD.some(x => nk(x.with) === nk(b.with)));
+    if (apiD.length) {
+      const box = $("#amDuos");
+      const emptyKb = /Aucun binôme/.test(box.textContent);
+      box.innerHTML = (emptyKb ? "" : box.innerHTML) + apiD.map(b =>
+        `<span class="am__tag am__tag--duo"><span class="am__duo-n">${esc(b.with)}</span>` +
+        `<span class="am__duo-w">${b.n} œuvre${b.n > 1 ? "s" : ""} commune${b.n > 1 ? "s" : ""} · API</span></span>`
+      ).join("");
+    }
   }
 
   function closeAuthor() {
@@ -1017,6 +1121,35 @@
     if (!modal.classList.contains("is-open"))
       document.body.classList.remove("no-scroll");
     return true;
+  }
+
+  /* ── Ajout direct depuis la bibliographie live ── */
+  const inLibNow = title => items.some(i => AI.key(i.title) === AI.key(title));
+
+  function markOwn(rowEl) {
+    rowEl.classList.add("is-own");
+    rowEl.removeAttribute("data-addlive");
+    const chip = rowEl.querySelector(".am__add");
+    if (chip) chip.outerHTML = `<span class="am__b-own">${ic("check")} possédé</span>`;
+  }
+
+  function addLiveWork(w, authorName) {
+    const lane = items.some(i => i.author === authorName && /manga|webtoon/i.test(i.format || ""))
+      ? "Manga" : "Comic";
+    const y = parseInt(w.y, 10);
+    const item = {
+      id: Math.max(0, ...items.map(x => +x.id || 0)) + 1,
+      title: w.t, author: authorName, format: lane,
+      year: (y >= 1900 && y <= 2100) ? y : new Date().getFullYear(),
+      volumes: 1, read: 0, rating: 0, status: "Planifié",
+      color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
+      desc: `Ajouté depuis la bibliographie en ligne de ${authorName}.`,
+      fav: false, review: "",
+      addedAt: Store.iso(new Date()), finishedAt: null
+    };
+    items.unshift(item);
+    persist(); refreshAll(); buildHeroStack();
+    return item;
   }
 
   function initAuthor() {
@@ -1036,6 +1169,24 @@
       const b = e.target.closest("[data-open]"); if (!b) return;
       closeAuthor();
       openModal(+b.dataset.open);
+    });
+
+    /* Bibliographie LIVE : clic sur un titre → ajout à la bibliothèque */
+    $("#amLiveWorks").addEventListener("click", e => {
+      const rowEl = e.target.closest("[data-addlive]"); if (!rowEl) return;
+      const w = liveWorks[+rowEl.dataset.addlive]; if (!w) return;
+      if (inLibNow(w.t)) {
+        markOwn(rowEl);
+        showToast(ic("check") + ` « ${esc(w.t)} » est déjà dans ta bibliothèque.`);
+        return;
+      }
+      if (w.series) {
+        showToast(ic("book") + ` « ${esc(w.t)} » fait partie d'une série déjà suivie.`);
+        return;
+      }
+      addLiveWork(w, liveAuthor || (lastAuthor && lastAuthor.name) || "");
+      markOwn(rowEl);
+      showToast(ic("check") + ` « ${esc(w.t)} » ajouté à la bibliothèque !`);
     });
   }
 
@@ -1131,7 +1282,7 @@
       it.variant = b.dataset.v;
       persist();
       renderEditions(it);
-      showToast(`📚  Variante enregistrée : ${it.variant}.`);
+      showToast(`${ic("book")} Variante enregistrée : ${esc(it.variant)}.`);
     });
   }
 
@@ -1183,7 +1334,7 @@
     el.hidden = false;
     el.innerHTML = `
       <div class="shop__head">
-        <span class="shop__h">🛒 Où l'acheter ?</span>
+        <span class="shop__h">${ic("cart")} Où l'acheter ?</span>
         <span class="shop__price">≈ ${s.unit.toFixed(2).replace(".", ",")} € / tome</span>
       </div>
       <div class="shop__grp">
@@ -1319,18 +1470,19 @@
       $("#mStatus").textContent = it.status;
       $("#mNext").style.display = it.read >= it.volumes ? "none" : "";
       persist();
-      refreshAll(false);
-      showToast(finishing ? "🏁  Ouvrage terminé !" : `📖  Tome ${it.read}/${it.volumes}`);
+      refreshAll();
+      showToast(finishing ? ic("check") + " Ouvrage terminé !" : `${ic("book")} Tome ${it.read}/${it.volumes}`);
     });
 
-    $("#mDelete").addEventListener("click", () => {
+    $("#mDelete").addEventListener("click", async () => {
       const it = items.find(x => x.id === state.openId); if (!it) return;
-      if (!confirm(`Retirer « ${it.title} » de la bibliothèque ?`)) return;
+      if (!await confirmBox(`Retirer « ${it.title} » de la bibliothèque ?`, "Retirer")) return;
       items = items.filter(x => x.id !== it.id);
       closeModal();
       persist();
       refreshAll();
-      showToast(`🗑️  « ${it.title} » retiré.`);
+      buildHeroStack();
+      showToast(`${ic("trash")} « ${esc(it.title)} » retiré.`);
     });
 
     // Lien partagé : #o/<id>
@@ -1499,7 +1651,7 @@
 
   const RO_EMPTY = `
     <div class="ro__empty">
-      <span class="ro__empty-icon">🧭</span>
+      <span class="ro__empty-icon">${ic("compass")}</span>
       <h3>Un fil conducteur, étape par étape</h3>
       <p>Pose ta question : une saga, un auteur, un crossover, un arc. Je reconstitue l'ordre,
          j'explique chaque étape et je te dis ce que tu as déjà — et ce qu'il te reste à trouver.</p>
@@ -1518,7 +1670,7 @@
       lastPlan = null;
       out.innerHTML = `
         <div class="ro__none">
-          <span class="ro__empty-icon">🔍</span>
+          <span class="ro__empty-icon">${ic("search")}</span>
           <h3>Pas encore de fil conducteur pour ça</h3>
           <p>Je n'ai pas d'ordre codé pour « ${esc(q)} ». Essaie l'une de ces sagas — ou reformule
              ta demande en recherche d'ambiance, mon autre moteur s'en charge.</p>
@@ -1551,7 +1703,11 @@
             ${resume ? `<span>↳ reprise au tome ${resume.item.read + 1}/${resume.item.volumes} — ${esc(resume.item.title)}</span>` : ""}
           </div>
         </div>
-        <button class="mini-btn ro__copy" data-copy>📋 Copier l'ordre</button>
+        <div class="ro__actions">
+          <button class="mini-btn ro__copy" data-copy>${ic("copy")} Copier l'ordre</button>
+          <button class="mini-btn" data-roexp="md" title="Exporter cet ordre en Markdown">${ic("file")} .md</button>
+          <button class="mini-btn" data-roexp="pdf" title="Exporter cet ordre en PDF">${ic("printer")} PDF</button>
+        </div>
       </div>
 
       <ol class="ro__steps">
@@ -1598,7 +1754,7 @@
       `${s.item ? " · dans ta bibliothèque" : " · à acquérir"}`));
     lines.push("", "Pourquoi cet ordre : " + lastPlan.note);
     const txt = lines.join("\n");
-    const done = () => showToast("📋  Ordre copié dans le presse-papiers.");
+    const done = () => showToast(ic("copy") + " Ordre copié dans le presse-papiers.");
     const fallback = () => {
       const ta = document.createElement("textarea");
       ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
@@ -1606,7 +1762,7 @@
       let ok = false;
       try { ok = document.execCommand("copy"); } catch (e) {}
       ta.remove();
-      showToast(ok ? "📋  Ordre copié dans le presse-papiers." : "⚠️  Copie impossible.");
+      showToast(ok ? ic("copy") + " Ordre copié dans le presse-papiers." : ic("alert") + " Copie impossible.");
     };
     if (navigator.clipboard && navigator.clipboard.writeText)
       navigator.clipboard.writeText(txt).then(done, fallback);
@@ -1631,6 +1787,8 @@
 
     out.addEventListener("click", e => {
       if (e.target.closest("[data-copy]"))   { copyPlan(); return; }
+      const re = e.target.closest("[data-roexp]");
+      if (re) { exportOrder(re.dataset.roexp); return; }
       const lib = e.target.closest("[data-open]");
       if (lib) { openModal(+lib.dataset.open); return; }
       const vb = e.target.closest("[data-vibe]");
@@ -1650,6 +1808,308 @@
     observeStats();
   }
 
+  /* ═══════════ EXPORT — MARKDOWN & PDF (bibliothèque + ordres) ═══════════ */
+
+  const EXPORT_DATE = () =>
+    new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", year: "numeric" }).format(new Date());
+
+  const EXPORT_STAMP = () => new Date().toISOString().slice(0, 10);
+
+  const slug = s => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "export";
+
+  const mdCell = s => String(s == null || s === "" ? "—" : s)
+    .replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+
+  const progCell = i => (i && i.volumes) ? `${i.read || 0}/${i.volumes}` : ((i && i.read) ? "lu" : "—");
+
+  function libraryStats() {
+    const done = items.filter(i => i.status === "Terminé").length;
+    const rated = items.filter(i => i.rating > 0);
+    const avg = rated.length ? rated.reduce((s, i) => s + i.rating, 0) / rated.length : 0;
+    const favs = items.filter(i => i.fav).length;
+    const fmts = {}, sts = {};
+    items.forEach(i => {
+      fmts[i.format || "Autre"] = (fmts[i.format || "Autre"] || 0) + 1;
+      sts[i.status || "—"] = (sts[i.status || "—"] || 0) + 1;
+    });
+    return { done, avg, favs, fmts, sts, rated: rated.length };
+  }
+
+  function downloadText(filename, text, mime) {
+    const blob = new Blob([text], { type: (mime || "text/plain") + ";charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  /* ── Bibliothèque → Markdown ── */
+  function buildLibraryMd() {
+    const s = libraryStats();
+    const sorted = [...items].sort((a, b) => a.title.localeCompare(b.title, "fr"));
+
+    let md = `# 📚 Ma bibliothèque — InkVault\n\n`;
+    md += `> Exportée le ${EXPORT_DATE()} · **${items.length} ouvrages** · ${s.done} terminés`;
+    if (s.rated) md += ` · note moyenne **${s.avg.toFixed(1)}/5**`;
+    if (s.favs) md += ` · ${s.favs} ♥`;
+    md += `\n\n## 📊 Vue d'ensemble\n\n`;
+    md += `| Statut | Ouvrages |\n|---|---:|\n`;
+    Object.entries(s.sts).sort((a, b) => b[1] - a[1])
+      .forEach(([k, n]) => { md += `| ${mdCell(k)} | ${n} |\n`; });
+    md += `\n| Format | Ouvrages |\n|---|---:|\n`;
+    Object.entries(s.fmts).sort((a, b) => b[1] - a[1])
+      .forEach(([k, n]) => { md += `| ${mdCell(k)} | ${n} |\n`; });
+
+    md += `\n## 📖 Catalogue (${items.length})\n\n`;
+    md += `| # | Titre | Auteur | Format | Année | Statut | Progression | Note |\n|---:|---|---|---|---:|---|---|---:|\n`;
+    sorted.forEach((i, idx) => {
+      md += `| ${idx + 1} | **${mdCell(i.title)}** | ${mdCell(i.author)} | ${mdCell(i.format)} | ` +
+        `${i.year || "—"} | ${mdCell(i.status)} | ${progCell(i)} | ` +
+        `${i.rating ? i.rating + "/5" : "—"}${i.fav ? " ♥" : ""} |\n`;
+    });
+
+    const noted = sorted.filter(i => i.review && i.review.trim());
+    if (noted.length) {
+      md += `\n## 📝 Mes notes de lecture\n\n`;
+      noted.forEach(i => {
+        md += `### ${mdCell(i.title)}\n\n`;
+        if (i.rating) {
+          const r = Math.round(i.rating);
+          md += `**${"★".repeat(r)}${"☆".repeat(Math.max(0, 5 - r))}** — ${i.rating}/5\n\n`;
+        }
+        md += i.review.trim() + `\n\n`;
+      });
+    }
+    md += `\n---\n_Généré par InkVault — bibliothèque comics & mangas._\n`;
+    return { text: md, name: `inkvault-bibliotheque-${EXPORT_STAMP()}.md` };
+  }
+
+  /* ── Ordre de lecture → Markdown ── */
+  function buildOrderMd(plan) {
+    const steps = plan.steps || [];
+    const inLib = steps.filter(x => x.item).length;
+    const stepTitle = st => st.arc ? `${st.arc} — ${st.t}` : st.t;
+    const libBadge = st => st.item
+      ? `✅ lu ${st.item.volumes ? (st.item.read || 0) + "/" + st.item.volumes : "possédé"}`
+      : `❌ à acquérir`;
+
+    let md = `# 🧭 Ordre de lecture — ${mdCell(plan.title)}\n\n`;
+    md += `> ${mdCell(plan.blurb)}\n>\n`;
+    md += `> Exporté le ${EXPORT_DATE()} · **${steps.length} étapes** · ${inLib} dans ta bibliothèque · ` +
+      `${steps.length - inLib} à acquérir\n\n`;
+    md += `| # | Étape | Auteur | Année | Type | Bibliothèque |\n|---:|---|---|---:|---|---|\n`;
+    steps.forEach((st, i) => {
+      md += `| ${i + 1} | **${mdCell(stepTitle(st))}** | ${mdCell(st.a)} | ${st.y || "—"} | ` +
+        `${KIND_LABEL[st.k] || st.k} | ${libBadge(st)} |\n`;
+    });
+
+    md += `\n## ✏️ Détail des étapes\n\n`;
+    steps.forEach((st, i) => {
+      md += `${i + 1}. **${mdCell(stepTitle(st))}** — ${mdCell(st.a)}${st.y ? ` (${st.y})` : ""}` +
+        ` · *${KIND_LABEL[st.k] || st.k}* · ${libBadge(st)}\n`;
+      if (st.why) md += `   > ${st.why}\n`;
+    });
+    md += `\n## 💡 Pourquoi cet ordre\n\n${mdCell(plan.note)}\n\n---\n_Généré par InkVault._\n`;
+    return { text: md, name: `inkvault-ordre-${slug(plan.title)}-${EXPORT_STAMP()}.md` };
+  }
+
+  /* ── Coquille d'impression (A4) — partagée navigateur & Electron ── */
+  const EXPORT_CSS = `
+    @page { size: A4; margin: 14mm 12mm; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:26px 22px; color:#18181d; background:#fff;
+      font: 14px/1.55 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .doc-head { border-bottom:3px solid #6c5ce7; padding-bottom:12px; margin-bottom:16px; }
+    .doc-k { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#6c5ce7; font-weight:800; }
+    h1 { font-size:25px; margin:6px 0 4px; }
+    .doc-sub { color:#444; margin:0; font-size:14px; }
+    .doc-meta { font-size:12px; color:#888; margin-top:6px; }
+    .chips { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0; }
+    .chip { border:1px solid #ddd; border-radius:999px; padding:4px 11px; font-size:12px; background:#f6f5fd; }
+    h2 { font-size:17px; margin:24px 0 10px; border-left:4px solid #6c5ce7; padding-left:10px; }
+    table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    th, td { border:1px solid #e3e1ee; padding:6px 8px; text-align:left; vertical-align:top; }
+    th { background:#f1effb; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    tr:nth-child(even) td { background:#fafafd; }
+    .num { text-align:center; white-space:nowrap; }
+    ol.steps { list-style:none; margin:0; padding:0; }
+    ol.steps li { display:flex; gap:12px; padding:10px 0; border-bottom:1px dashed #ddd; break-inside:avoid; }
+    ol.steps li::before { content:attr(data-n); font-weight:800; color:#6c5ce7;
+      font-size:15px; min-width:26px; padding-top:1px; }
+    .st-t { font-weight:700; font-size:14px; }
+    .st-m { color:#666; font-size:12px; margin:2px 0; }
+    .badge { display:inline-block; font-size:10px; font-weight:800; letter-spacing:.05em;
+      text-transform:uppercase; border-radius:20px; padding:2px 9px; margin-right:6px;
+      background:#efeafd; color:#5a49d6; }
+    .badge.lib { background:#e5f8ee; color:#1c8e51; }
+    .badge.out { background:#fdeeee; color:#c0392b; }
+    .why { color:#444; font-size:12.5px; margin:4px 0 0; }
+    .note { background:#f6f5fd; border:1px solid #e3e1ee; border-radius:10px;
+      padding:12px 14px; font-size:13px; }
+    .foot { margin-top:26px; font-size:11px; color:#999; text-align:center; }
+    @media print { body { padding:0; } }
+  `;
+
+  const docShell = bodyHtml =>
+    `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">` +
+    `<title>Export InkVault</title><style>${EXPORT_CSS}</style></head><body>${bodyHtml}</body></html>`;
+
+  /* ── Bibliothèque → HTML d'impression (PDF) ── */
+  function buildLibraryHtml() {
+    const s = libraryStats();
+    const sorted = [...items].sort((a, b) => a.title.localeCompare(b.title, "fr"));
+    const chips = [
+      ...Object.entries(s.sts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${mdCell(k)} · ${n}`),
+      ...Object.entries(s.fmts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${mdCell(k)} · ${n}`)
+    ].map(c => `<span class="chip">${c}</span>`).join("");
+
+    const rows = sorted.map((i, idx) => `<tr>
+      <td class="num">${idx + 1}</td><td><b>${esc(i.title)}</b></td><td>${esc(i.author)}</td>
+      <td>${esc(i.format || "—")}</td><td class="num">${i.year || "—"}</td><td>${esc(i.status || "—")}</td>
+      <td class="num">${progCell(i)}</td>
+      <td class="num">${i.rating ? i.rating + "/5" : "—"}${i.fav ? " ♥" : ""}</td></tr>`).join("");
+
+    const noted = sorted.filter(i => i.review && i.review.trim());
+    const notesHtml = noted.length ? `<h2>📝 Mes notes de lecture</h2>` + noted.map(i => `
+      <div class="note"><b>${esc(i.title)}</b>${i.rating ? ` — ${i.rating}/5` : ""}<br>${esc(i.review.trim())}</div>`
+    ).join("") : "";
+
+    const body = `
+      <div class="doc-head">
+        <div class="doc-k">✦ InkVault — export bibliothèque</div>
+        <h1>📚 Ma bibliothèque${s.favs ? ` — ${s.favs} ♥` : ""}</h1>
+        <p class="doc-sub">${items.length} ouvrages · ${s.done} terminés` +
+        (s.rated ? ` · moyenne ${s.avg.toFixed(1)}/5` : "") + `</p>
+        <div class="doc-meta">Exportée le ${EXPORT_DATE()}</div>
+      </div>
+      <div class="chips">${chips}</div>
+      <h2>📖 Catalogue (${items.length})</h2>
+      <table><thead><tr><th>#</th><th>Titre</th><th>Auteur</th><th>Format</th><th>Année</th>
+      <th>Statut</th><th>Progression</th><th>Note</th></tr></thead><tbody>${rows}</tbody></table>
+      ${notesHtml}
+      <div class="foot">Généré par InkVault — bibliothèque comics & mangas · ${EXPORT_DATE()}</div>`;
+
+    return { html: docShell(body), name: `inkvault-bibliotheque-${EXPORT_STAMP()}.pdf` };
+  }
+
+  /* ── Ordre de lecture → HTML d'impression (PDF) ── */
+  function buildOrderHtml(plan) {
+    const steps = plan.steps || [];
+    const inLib = steps.filter(x => x.item).length;
+    const stepTitle = st => st.arc ? `${st.arc} — ${st.t}` : st.t;
+
+    const lis = steps.map((st, i) => {
+      const kind = KIND_LABEL[st.k] || st.k;
+      const lib = st.item
+        ? `<span class="badge lib">dans ta bibliothèque` +
+          (st.item.volumes ? ` · ${st.item.read || 0}/${st.item.volumes}` : ``) + `</span>`
+        : `<span class="badge out">à acquérir</span>`;
+      const meta = `${esc(st.a)}${st.y ? ` · ${st.y}` : ""}`;
+      return `<li data-n="${String(i + 1).padStart(2, "0")}">
+        <div>
+          <div class="st-t"><span class="badge">${kind}</span>${esc(stepTitle(st))}</div>
+          <div class="st-m">${meta} ${lib}</div>
+          ${st.why ? `<p class="why">${esc(st.why)}</p>` : ""}
+        </div></li>`;
+    }).join("");
+
+    const body = `
+      <div class="doc-head">
+        <div class="doc-k">✦ InkVault — ${plan.kind === "generated" ? "ordre reconstruit" : "ordre de lecture"}</div>
+        <h1>🧭 ${esc(plan.title)}</h1>
+        <p class="doc-sub">${esc(plan.blurb)}</p>
+        <div class="chips">
+          <span class="chip">${steps.length} étapes</span>
+          <span class="chip">${inLib} dans ta bibliothèque</span>
+          <span class="chip">${steps.length - inLib} à acquérir</span>
+          <span class="chip">Exporté le ${EXPORT_DATE()}</span>
+        </div>
+      </div>
+      <ol class="steps">${lis}</ol>
+      <h2>💡 Pourquoi cet ordre</h2>
+      <div class="note">${esc(plan.note)}</div>
+      <div class="foot">Généré par InkVault — bibliothèque comics & mangas · ${EXPORT_DATE()}</div>`;
+
+    return { html: docShell(body), name: `inkvault-ordre-${slug(plan.title)}-${EXPORT_STAMP()}.pdf` };
+  }
+
+  /* ── PDF : pont Electron (sauvegarde native) puis impression navigateur ── */
+  function printViaIframe(html) {
+    const old = document.getElementById("printFrame");
+    if (old) old.remove();
+    const f = document.createElement("iframe");
+    f.id = "printFrame";
+    f.setAttribute("aria-hidden", "true");
+    f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+    document.body.appendChild(f);
+    const doc = f.contentDocument;
+    doc.open(); doc.write(html); doc.close();
+    const go = () => {
+      try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {}
+      setTimeout(() => { if (f.parentNode) f.remove(); }, 1200);
+    };
+    if (doc.readyState === "complete") setTimeout(go, 300);
+    else f.onload = () => setTimeout(go, 300);
+  }
+
+  function exportPdf(html, filename) {
+    const br = window.inkvault;
+    if (br && typeof br.savePdf === "function") {
+      Promise.resolve(br.savePdf(html, filename))
+        .then(r => {
+          if (r && r.ok) showToast("📄 PDF enregistré — " + filename);
+          else if (r && r.canceled) showToast("Export PDF annulé.");
+          else { printViaIframe(html); showToast("🖨️ Fenêtre d'impression — « Enregistrer au format PDF »."); }
+        })
+        .catch(() => { printViaIframe(html); showToast("🖨️ Fenêtre d'impression — « Enregistrer au format PDF »."); });
+      return;
+    }
+    printViaIframe(html);
+    showToast("🖨️ Fenêtre d'impression — « Enregistrer au format PDF ».");
+  }
+
+  function exportOrder(kind) {
+    if (!lastPlan) { showToast("⚠️ Génère d'abord un ordre de lecture."); return; }
+    if (kind === "md") {
+      const x = buildOrderMd(lastPlan);
+      downloadText(x.name, x.text, "text/markdown");
+      showToast("📝 Ordre exporté en Markdown — " + x.name);
+    } else {
+      const x = buildOrderHtml(lastPlan);
+      exportPdf(x.html, x.name);
+    }
+  }
+
+  function initExport() {
+    const dd = $("#exportDD"), btn = $("#btnExport"), menu = $("#exportMenu");
+    if (!dd || !btn || !menu) return;
+    const closeMenu = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      btn.setAttribute("aria-expanded", String(!menu.hidden));
+    });
+    document.addEventListener("click", e => { if (!dd.contains(e.target)) closeMenu(); });
+
+    menu.addEventListener("click", e => {
+      const b = e.target.closest("[data-exp]"); if (!b) return;
+      closeMenu();
+      const kind = b.dataset.exp;
+      if (kind === "json") { exportJSON(); return; }
+      if (kind === "md") {
+        const x = buildLibraryMd();
+        downloadText(x.name, x.text, "text/markdown");
+        showToast("📝 Bibliothèque exportée en Markdown — " + x.name);
+      } else if (kind === "pdf") {
+        const x = buildLibraryHtml();
+        exportPdf(x.html, x.name);
+      }
+    });
+  }
+
   /* ═══════════ DÉMARRAGE ═══════════ */
   document.addEventListener("DOMContentLoaded", () => {
     runLoader();
@@ -1667,6 +2127,7 @@
     initAuthor();
     initBookExtras();
     initReading();
+    initExport();
 
     renderMetrics();
     renderGrid();

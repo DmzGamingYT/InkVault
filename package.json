@@ -37,8 +37,17 @@
       "electron/**/*",
       "!_preview.html"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "DmzGamingYT",
+      "repo": "InkVault"
+    },
     "linux": {
-      "target": ["AppImage", "deb", "tar.gz"],
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
       "category": "Office",
       "maintainer": "DmzGamingYT <DmzGamingYT@users.noreply.github.com>",
       "synopsis": "Bibliothèque comics & mangas avec IA locale",
@@ -53,5 +62,8 @@
     "deb": {
       "artifactName": "inkvault-${version}-${arch}.deb"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

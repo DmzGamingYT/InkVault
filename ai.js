@@ -1613,7 +1613,7 @@ const AI = (() => {
     const nrm = s => (s || "").toString().toLowerCase()
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]/g, "");
-    const ck = n => "iv-live-v1-" + nrm(n);
+    const ck = n => "iv-live-v2-" + nrm(n);
 
     async function getJSON(url, ms = 8000) {
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -1625,31 +1625,118 @@ const AI = (() => {
       } finally { if (t) clearTimeout(t); }
     }
 
-    /* Bio d'intro Wikipédia (fr puis en) */
+    /* Similarité locale (bigrammes) — indépendante du reste du moteur */
+    const sml = (a, b) => {
+      a = nrm(a); b = nrm(b);
+      if (!a || !b) return 0;
+      if (a === b) return 100;
+      if (a.includes(b) || b.includes(a)) return 88;
+      const ga = new Set(), gb = new Set();
+      for (let i = 0; i < a.length - 1; i++) ga.add(a.slice(i, i + 2));
+      for (let i = 0; i < b.length - 1; i++) gb.add(b.slice(i, i + 2));
+      if (!ga.size || !gb.size) return 0;
+      let h = 0; ga.forEach(g => { if (gb.has(g)) h++; });
+      return Math.round((200 * h) / (ga.size + gb.size));
+    };
+
+    /* Bio d'intro Wikipédia : fr ET en en parallèle — on pioche le meilleur
+       de chaque (extrait FR, portrait si fr n'en a pas, dates dans le sous-titre) */
     async function wikiBio(name) {
-      for (const lang of ["fr", "en"]) {
-        try {
-          const d = await getJSON(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/` + encodeURIComponent(name));
-          if (d && d.extract && d.type !== "disambiguation")
-            return {
-              extract: d.extract, lang: lang === "fr" ? "FR" : "EN",
-              url: (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || ""
-            };
-        } catch (e) {}
-      }
-      return null;
+      const grab = lang => getJSON(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/` + encodeURIComponent(name))
+        .then(d => (d && d.extract && d.type !== "disambiguation") ? {
+          extract: d.extract,
+          desc: d.description || "",
+          photo: (d.thumbnail && d.thumbnail.source) || "",
+          url: (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || ""
+        } : null)
+        .catch(() => null);
+
+      const [fr, en] = await Promise.all([grab("fr"), grab("en")]);
+      const base = fr || en;
+      if (!base) return null;
+      const hasYear = s => /\b(1[0-9]{3}|20[0-9]{2})\b/.test(s || "");
+      return {
+        extract: base.extract,
+        lang: fr ? "FR" : "EN",
+        desc: hasYear(fr && fr.desc) ? fr.desc
+            : hasYear(en && en.desc) ? en.desc
+            : (base.desc || ""),
+        photo: base.photo || (en && en.photo) || (fr && fr.photo) || "",
+        url: base.url
+      };
     }
 
-    /* Bibliographie : Open Library (auteur exact) */
+    /* Bibliographie : Open Library (auteur exact) + co-auteurs réels (binômes) */
     async function olWorks(name) {
       try {
         const d = await getJSON("https://openlibrary.org/search.json?author=" +
-          encodeURIComponent(name) + "&limit=60&fields=title,first_publish_year,cover_i");
-        return ((d && d.docs) || []).map(w => ({
-          t: w.title || "", y: w.first_publish_year || 0,
-          c: w.cover_i ? "https://covers.openlibrary.org/b/id/" + w.cover_i + "-S.jpg" : ""
-        }));
-      } catch (e) { return []; }
+          encodeURIComponent(name) + "&limit=60&fields=title,first_publish_year,cover_i,author_name");
+        const docs = (d && d.docs) || [];
+
+        /* Œuvres portées par plusieurs auteurs dont celui-ci → binômes réels */
+        const co = new Map();
+        docs.forEach(doc => {
+          const names = doc.author_name || [];
+          if (names.length < 2) return;
+          if (!names.some(n => sml(n, name) >= 70)) return;
+          names.filter(n => sml(n, name) < 70).forEach(n => {
+            const k = nrm(n);
+            const e = co.get(k) || { with: n, n: 0 };
+            e.n++; co.set(k, e);
+          });
+        });
+
+        return {
+          works: docs.map(w => ({
+            t: w.title || "", y: w.first_publish_year || 0,
+            c: w.cover_i ? "https://covers.openlibrary.org/b/id/" + w.cover_i + "-S.jpg" : ""
+          })),
+          co: [...co.values()].sort((a, b) => b.n - a.n).slice(0, 4)
+        };
+      } catch (e) { return { works: [], co: [] }; }
+    }
+
+    /* Autorité auteur Open Library : clé, nb d'œuvres RÉEL, dates, photo */
+    async function olAuthority(name) {
+      try {
+        const d = await getJSON("https://openlibrary.org/search/authors.json?q=" + encodeURIComponent(name));
+        const docs = ((d && d.docs) || []).slice(0, 5);
+        if (!docs.length) return null;
+        let best = null, bestScore = -1;
+        docs.forEach((doc, i) => {
+          let s = 5 - i;                       // rang par défaut
+          const names = [doc.name, ...(doc.alternate_names || [])];
+          if (names.some(n => nrm(n) === nrm(name))) s += 100;
+          else s += names.reduce((m, n) => Math.max(m, sml(name, n)), 0);
+          if (s > bestScore) { bestScore = s; best = doc; }
+        });
+        if (!best) return null;
+        return {
+          key: String(best.key || "").replace(/^\/authors\//, ""),
+          workCount: best.work_count || 0,
+          date: best.date || "",
+          photo: (best.photos && best.photos.length)
+            ? `https://covers.openlibrary.org/b/id/${best.photos[0]}-M.jpg` : ""
+        };
+      } catch (e) { return null; }
+    }
+
+    /* Corpus par clé d'auteur :50 œuvres max (titre, couverture, date, subjects) */
+    async function olKeyWorks(authorKey) {
+      try {
+        const d = await getJSON(`https://openlibrary.org/authors/${authorKey}/works.json?limit=50&fields=key,title,covers,first_publish_date,authors,subjects`);
+        const entries = (d && d.entries) || [];
+        return {
+          size: (d && d.size) || entries.length,
+          works: entries.map(w => ({
+            t: w.title || "",
+            y: parseInt(String(w.first_publish_date || "").slice(0, 4), 10) || 0,
+            c: (w.covers && w.covers.length)
+              ? `https://covers.openlibrary.org/b/id/${w.covers[0]}-M.jpg` : ""
+          })),
+          subjects: entries.reduce((a, w) => a.concat(w.subjects || []), [])
+        };
+      } catch (e) { return null; }
     }
 
     /* Secours / complément : Google Books (inauthor) */
@@ -1675,12 +1762,15 @@ const AI = (() => {
       if (LS) { try { cached = JSON.parse(LS.getItem(ck(name)) || "null"); } catch (e) {} }
       if (cached && cached.data && Date.now() - cached.at < TTL) return cached.data;
 
-      const [bio, ol, gb] = await Promise.all([wikiBio(name), olWorks(name), gbWorks(name)]);
+      const [wiki, auth, search, gb] = await Promise.all([
+        wikiBio(name), olAuthority(name), olWorks(name), gbWorks(name)
+      ]);
+      const kw = auth && auth.key ? await olKeyWorks(auth.key) : null;
 
       /* Fusion + dédup (une entrée couverture primée) — titres sans lettres
          latines (kana/kanji seuls) écartés : illisibles dans l'UI */
       const map = new Map();
-      [...ol, ...gb].forEach(w => {
+      [...search.works, ...gb, ...((kw && kw.works) || [])].forEach(w => {
         const k = nrm(w.t);
         if (!k || !/[a-z]/.test(k) || w.t.length < 2) return;
         if (/duplicate\s+of|^record\s|\(import\b/i.test(w.t)) return;   // orphelins Open Library
@@ -1698,16 +1788,39 @@ const AI = (() => {
         return { t: w.t, y: w.y, c: w.c, exact, series };
       }).sort((a, b) => ((a.y || 9999) - (b.y || 9999)) || a.t.localeCompare(b.t));
 
+      /* Mots-clés réels : fréquence des subjects du corpus par clé.
+         Préfixes structurés OL ("genre:dark fantasy") déballés,
+         valeurs non latines (franchise:ベルセルク) écartées. */
+      const subjFreq = new Map();
+      ((kw && kw.subjects) || []).forEach(raw => {
+        let s = String(raw).trim();
+        const ci = s.lastIndexOf(":");
+        if (ci >= 0) s = s.slice(ci + 1).trim();
+        if (s.length < 3 || s.length > 40) return;
+        const k = nrm(s);
+        if (!k || !/[a-z]/.test(k)) return;
+        const e = subjFreq.get(k) || { label: s, n: 0 };
+        e.n++; subjFreq.set(k, e);
+      });
+      const subjects = [...subjFreq.values()].sort((a, b) => b.n - a.n)
+        .slice(0, 10).map(e => e.label);
+
       const data = {
-        bio,
+        bio: wiki,
+        wikiDesc: (wiki && wiki.desc) || "",
+        photo: (wiki && wiki.photo) || (auth && auth.photo) || "",
+        ol: auth,
+        workCount: (auth && auth.workCount) || (kw && kw.size) || 0,
         works,
         total: works.length,
         exact: works.filter(w => w.exact).length,
         series: works.filter(w => w.series).length,
+        subjects,
+        binomes: search.co,
         src: [
-          ol.length ? "Open Library" : "",
+          (search.works.length || auth) ? "Open Library" : "",
           gb.length ? "Google Books" : "",
-          bio ? "Wikipédia" : ""
+          wiki ? "Wikipédia" : ""
         ].filter(Boolean)
       };
 
