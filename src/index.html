@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://uploads.mangadex.org">
 <link rel="preconnect" href="https://graphql.anilist.co">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles/styles.css" />
 </head>
 <body>
 
@@ -50,6 +50,14 @@
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.4V12l3.6 2.2"/></symbol>
   <symbol id="i-star" viewBox="0 0 24 24"><polygon fill="currentColor" stroke="none" points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5L14 10l7.5 2-7.5 2-2 7.5-2-7.5L2.5 12l7.5-2z"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/><path d="M9.5 21v-6.5h5V21"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></symbol>
+  <symbol id="i-nib" viewBox="0 0 24 24"><path fill="currentColor" opacity=".12" stroke="none" d="M12 2.5l8 8-7.3 10.8-10-10z"/><path d="M12 2.5l8 8-7.3 10.8-10-10zM12 2.5v8.7M2.7 11.3l8.3-.1"/><circle cx="11.2" cy="11.2" r="1.7"/><path d="M17.2 16.4c1.8 1.8 1.8 3.2.2 4.3-1.6-1.1-1.6-2.5-.2-4.3z"/></symbol>
+  <symbol id="i-bubble" viewBox="0 0 24 24"><path fill="currentColor" opacity=".1" stroke="none" d="M2.5 4h19v13.5H10L4.5 21v-3.5h-2z"/><path d="M2.5 4h19v13.5H10L4.5 21v-3.5h-2zM7 8h10M7 12h7"/><path d="M18.8 1.8l.8-1.3M21 3.4l1.5-.5M16.8 1.5l-.3-1.5"/></symbol>
+  <symbol id="i-city" viewBox="0 0 24 24"><circle fill="currentColor" opacity=".17" stroke="none" cx="18" cy="5" r="3.2"/><path fill="currentColor" opacity=".09" stroke="none" d="M2 9h7v12H2zM9 3h7v18H9zM16 11h6v10h-6z"/><path d="M2 21V9h7v12M9 21V3h7v18M16 21V11h6v10M5.5 12h.1M5.5 16h.1M12 7h1M12 11h1M12 15h1M19 14h.1M19 18h.1M1 21h22"/></symbol>
+  <symbol id="i-bat" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" opacity=".55"/><path fill="currentColor" stroke="none" d="M3.7 8.2l4 1 2.1-3.3L12 8.5l2.2-2.6 2.1 3.3 4-1-1.7 6.4-4-1.1L12 18l-2.6-4.5-4 1.1z"/><path d="M5 18.3c3.8 2.8 10.2 2.8 14 0" opacity=".55"/></symbol>
+  <symbol id="i-anchor" viewBox="0 0 24 24"><circle fill="currentColor" opacity=".12" stroke="none" cx="18.5" cy="5.5" r="4"/><circle cx="12" cy="5" r="2.6"/><path d="M12 7.6V21M7 10.5h10M3.5 15c.8 3.8 3.7 6 8.5 6s7.7-2.2 8.5-6M3.5 15l-1 3.3M20.5 15l1 3.3"/><path d="M18.5 1v2M18.5 8v2M14 5.5h2M21 5.5h2" opacity=".65"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2.5" opacity=".45"/><path fill="currentColor" opacity=".1" stroke="none" d="M4 20l1.2-5L16.8 3.4l3.8 3.8L9 18.8z"/><path d="M4 20l1.2-5L16.8 3.4a1.5 1.5 0 0 1 2.1 0l1.7 1.7a1.5 1.5 0 0 1 0 2.1L9 18.8zM14.8 5.4l3.8 3.8M5.2 15l3.8 3.8M3 10h5M14 20v-5"/></symbol>
   <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6M14 11v6"/></symbol>
 </svg>
@@ -80,12 +88,12 @@
     <span class="nav__name">INK<em>VAULT</em></span>
   </button>
 
-  <nav class="nav__links">
-    <a href="#hero" class="nav__link is-active" data-nav="hero"><span>Accueil</span></a>
-    <a href="#collection" class="nav__link" data-nav="collection"><span>Collection</span></a>
-    <a href="#stats" class="nav__link" data-nav="stats"><span>Statistiques</span></a>
-    <a href="#reading" class="nav__link" data-nav="reading"><span>Parcours</span></a>
-    <a href="#add" class="nav__link" data-nav="add"><span>Ajouter</span></a>
+  <nav class="nav__links" aria-label="Navigation principale">
+    <a href="#hero" class="nav__link is-active" data-nav="hero"><span class="nav__icon"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg></span><span class="nav__label">Accueil</span></a>
+    <a href="#collection" class="nav__link" data-nav="collection"><span class="nav__icon"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span><span class="nav__label">Collection</span></a>
+    <a href="#stats" class="nav__link" data-nav="stats"><span class="nav__icon"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></span><span class="nav__label">Statistiques</span></a>
+    <a href="#reading" class="nav__link" data-nav="reading"><span class="nav__icon"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg></span><span class="nav__label">Parcours</span></a>
+    <a href="#add" class="nav__link" data-nav="add"><span class="nav__icon"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></span><span class="nav__label">Ajouter</span></a>
   </nav>
 
   <div class="nav__actions">
@@ -97,27 +105,27 @@
       <div class="skinpick" id="skinPick" hidden>
         <p class="skinpick__t"><svg class="ic" aria-hidden="true"><use href="#i-palette"/></svg> Thème graphique</p>
         <button class="skinpick__opt" data-skin="ink" type="button">
-          <span class="skinpick__sw sw-ink"></span>
+          <span class="skinpick__sw sw-ink"><svg class="ic" aria-hidden="true"><use href="#i-nib"/></svg></span>
           <span class="skinpick__tx"><b>Manga Ink</b><i>Trames & fort contraste N&amp;B</i></span>
         </button>
         <button class="skinpick__opt" data-skin="vintage" type="button">
-          <span class="skinpick__sw sw-vintage"></span>
+          <span class="skinpick__sw sw-vintage"><svg class="ic" aria-hidden="true"><use href="#i-bubble"/></svg></span>
           <span class="skinpick__tx"><b>Comics Vintage</b><i>Papier jauni, points Ben-Day</i></span>
         </button>
         <button class="skinpick__opt" data-skin="gotham" type="button">
-          <span class="skinpick__sw sw-gotham"></span>
+          <span class="skinpick__sw sw-gotham"><svg class="ic" aria-hidden="true"><use href="#i-city"/></svg></span>
           <span class="skinpick__tx"><b>Gotham</b><i>Sombre, néons discrets — nuit</i></span>
         </button>
         <button class="skinpick__opt" data-skin="batman" type="button">
-          <span class="skinpick__sw sw-batman"></span>
+          <span class="skinpick__sw sw-batman"><svg class="ic" aria-hidden="true"><use href="#i-bat"/></svg></span>
           <span class="skinpick__tx"><b>Batman</b><i>Nuits de Gotham, Batsignal</i></span>
         </button>
         <button class="skinpick__opt" data-skin="onepiece" type="button">
-          <span class="skinpick__sw sw-onepiece"></span>
+          <span class="skinpick__sw sw-onepiece"><svg class="ic" aria-hidden="true"><use href="#i-anchor"/></svg></span>
           <span class="skinpick__tx"><b>One Piece</b><i>Soleil, mer & paille — Grand Line</i></span>
         </button>
         <button class="skinpick__opt" data-skin="claire" type="button">
-          <span class="skinpick__sw sw-claire"></span>
+          <span class="skinpick__sw sw-claire"><svg class="ic" aria-hidden="true"><use href="#i-pencil"/></svg></span>
           <span class="skinpick__tx"><b>Ligne Claire</b><i>Pastel sobre — franco-belge</i></span>
         </button>
       </div>
@@ -236,24 +244,6 @@
     </div>
   </div>
 
-  <!-- Recherche par ambiance (moteur local) -->
-  <div class="vibe" id="vibePanel" hidden>
-    <div class="vibe__row">
-      <span class="vibe__badge">✦ IA</span>
-      <p class="vibe__desc">Décris une ambiance, un style visuel ou une époque : je décompose la demande en
-        concepts, puis je classe ta collection par affinité — et je t'explique chaque correspondance.</p>
-      <span class="vibe__count" id="vibeCount"></span>
-    </div>
-    <div class="vibe__tags" id="vibeTags"></div>
-    <div class="vibe__examples" id="vibeExamples">
-      <button class="chip chip--ex" data-q="Un seinen sombre avec de la philosophie et du dessin à l'encre très détaillé">seinen sombre & encre détaillée</button>
-      <button class="chip chip--ex" data-q="Un comics cosmique des années 90">comics cosmique des années 90</button>
-      <button class="chip chip--ex" data-q="Une romance colorée en webtoon">romance colorée en webtoon</button>
-      <button class="chip chip--ex" data-q="Un thriller psychologique japonais">thriller psychologique japonais</button>
-      <button class="chip chip--ex" data-q="Post-apo en noir et blanc">post-apo en noir et blanc</button>
-      <button class="chip chip--ex" data-q="Une aventure pirate pour tous les publics">aventure pirate pour tous</button>
-    </div>
-  </div>
 
   <!-- Vue + outils -->
   <div class="views">
@@ -295,11 +285,106 @@
       <span class="section-tag">03 — Analyse</span>
       <h2 class="section-title">Tes <em>statistiques</em></h2>
     </div>
+    <div class="section-note">Ta collection en un coup d’œil</div>
+  </div>
+
+  <div class="stats__overview" aria-label="Résumé de la collection">
+    <div class="stats-kpi stats-kpi--collection">
+      <span class="stats-kpi__icon"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span>
+      <div><strong id="statTotal">0</strong><span>ouvrages</span><small>dans la collection</small></div>
+    </div>
+    <div class="stats-kpi stats-kpi--read">
+      <span class="stats-kpi__icon"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+      <div><strong id="statRead">0</strong><span>tomes lus</span><small id="statCompletion">0% terminés</small></div>
+    </div>
+    <div class="stats-kpi stats-kpi--rating">
+      <span class="stats-kpi__icon">★</span>
+      <div><strong id="statAverage">—</strong><span>note moyenne</span><small>sur les titres notés</small></div>
+    </div>
+    <div class="stats-kpi stats-kpi--favorites">
+      <span class="stats-kpi__icon"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg></span>
+      <div><strong id="statFavorites">0</strong><span>favoris</span><small>tes indispensables</small></div>
+    </div>
   </div>
 
   <div class="stats__grid">
+    <h3 class="stats__group-title"><span></span>01</span> Vue de la collection</h3>
+
+    <div class="stat-card stat-card--format">
+      <div class="stat-card__head">
+        <h4>Répartition par format</h4>
+        <span class="pill">live</span>
+      </div>
+      <div class="bars" id="barsGenre"></div>
+    </div>
+
+    <div class="stat-card stat-card--progress">
+      <div class="stat-card__head"><h4>Progression</h4></div>
+      <div class="ring">
+        <svg viewBox="0 0 120 120">
+          <circle class="ring__track" cx="60" cy="60" r="52"/>
+          <circle class="ring__fill" id="ringFill" cx="60" cy="60" r="52"/>
+        </svg>
+        <div class="ring__label">
+          <strong id="ringPct">0%</strong>
+          <span>terminés</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-card stat-card--challenge">
+      <div class="stat-card__head">
+        <h4>Challenge <span id="chYear"></span></h4>
+        <span class="pill pill--goal">objectif</span>
+      </div>
+      <div class="challenge">
+        <div class="challenge__num">
+          <strong id="chDone">0</strong>
+          <span class="challenge__goal">/ <input type="number" id="chGoal" min="1" max="999" step="1" value="40" aria-label="Objectif annuel" /></span>
+        </div>
+        <div class="progress"><i id="chBar" style="width:0%"></i></div>
+        <div class="challenge__foot">
+          <span id="chLeft">—</span>
+          <span id="chPace">—</span>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="stats__group-title"><span>02</span> Activité et habitudes</h3>
+
+    <div class="stat-card stat-card--authors">
+      <div class="stat-card__head"><h4>Auteurs favoris</h4></div>
+      <ul class="authors" id="authorsList"></ul>
+    </div>
+
+    <div class="stat-card stat-card--activity">
+      <div class="stat-card__head">
+        <h4>Activité de lecture</h4>
+        <div class="hm-meta">
+          <span class="pill" id="hmTotal">0 sessions</span>
+          <span class="pill pill--fire" id="hmStreak">—</span>
+        </div>
+      </div>
+      <div class="heatmap-scroll">
+        <div class="hm-months" id="hmMonths" aria-hidden="true"></div>
+        <div class="heatmap" id="heatmap" role="img" aria-label="Activité des 26 dernières semaines"></div>
+      </div>
+      <div class="hm-legend">
+        <span>moins</span>
+        <i class="is-zero"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i>
+        <span>plus</span>
+      </div>
+    </div>
+
+    <div class="stat-card stat-card--history">
+      <div class="stat-card__head"><h4>Années d’ajout</h4></div>
+      <div class="spark" id="spark"></div>
+    </div>
+
+    <h3 class="stats__group-title"><span>03</span> Conseils et planification</h3>
+
     <!-- Insights & profil de lecture (moteur local) -->
-    <div class="stat-card stat-card--wide stat-card--ins" id="insCard">
+    <div class="stat-card stat-card--ins" id="insCard">
       <div class="stat-card__head">
         <h4>Profil de lecture <span class="ins__month" id="insMonth"></span></h4>
         <div class="ins__ctrl">
@@ -323,7 +408,7 @@
     </div>
 
     <!-- Smart Buy — optimiseur de panier (moteur local) -->
-    <div class="stat-card stat-card--wide stat-card--sb" id="sbCard">
+    <div class="stat-card stat-card--sb" id="sbCard">
       <div class="stat-card__head">
         <h4>Smart Buy <span class="ins__month">optimiseur de panier</span></h4>
         <span class="pill pill--ai">✦ IA</span>
@@ -345,75 +430,6 @@
       </div>
       <div class="sb__out" id="sbOut"></div>
     </div>
-
-    <div class="stat-card stat-card--wide">
-      <div class="stat-card__head">
-        <h4>Répartition par format</h4>
-        <span class="pill">live</span>
-      </div>
-      <div class="bars" id="barsGenre"></div>
-    </div>
-
-    <div class="stat-card">
-      <div class="stat-card__head"><h4>Progression</h4></div>
-      <div class="ring">
-        <svg viewBox="0 0 120 120">
-          <circle class="ring__track" cx="60" cy="60" r="52"/>
-          <circle class="ring__fill" id="ringFill" cx="60" cy="60" r="52"/>
-        </svg>
-        <div class="ring__label">
-          <strong id="ringPct">0%</strong>
-          <span>terminés</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="stat-card">
-      <div class="stat-card__head">
-        <h4>Challenge <span id="chYear"></span></h4>
-        <span class="pill pill--goal">objectif</span>
-      </div>
-      <div class="challenge">
-        <div class="challenge__num">
-          <strong id="chDone">0</strong>
-          <span class="challenge__goal">/ <input type="number" id="chGoal" min="1" max="999" step="1" value="40" aria-label="Objectif annuel" /></span>
-        </div>
-        <div class="progress"><i id="chBar" style="width:0%"></i></div>
-        <div class="challenge__foot">
-          <span id="chLeft">—</span>
-          <span id="chPace">—</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="stat-card">
-      <div class="stat-card__head"><h4>Auteurs favoris</h4></div>
-      <ul class="authors" id="authorsList"></ul>
-    </div>
-
-    <div class="stat-card stat-card--wide">
-      <div class="stat-card__head">
-        <h4>Activité de lecture</h4>
-        <div class="hm-meta">
-          <span class="pill" id="hmTotal">0 sessions</span>
-          <span class="pill pill--fire" id="hmStreak">—</span>
-        </div>
-      </div>
-      <div class="heatmap-scroll">
-        <div class="hm-months" id="hmMonths" aria-hidden="true"></div>
-        <div class="heatmap" id="heatmap" role="img" aria-label="Activité des 26 dernières semaines"></div>
-      </div>
-      <div class="hm-legend">
-        <span>moins</span>
-        <i class="is-zero"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i>
-        <span>plus</span>
-      </div>
-    </div>
-
-    <div class="stat-card stat-card--wide">
-      <div class="stat-card__head"><h4>Années d’ajout</h4></div>
-      <div class="spark" id="spark"></div>
-    </div>
   </div>
 </section>
 
@@ -433,12 +449,13 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="17" r="3"/></svg>
         <input type="text" id="roInput" autocomplete="off"
                placeholder="Dans quel ordre lire le run de Jonathan Hickman ?" />
-        <button class="btn btn--primary btn--sm ro__go" id="roGo"><span>Générer</span></button>
+        <button class="btn btn--primary btn--sm ro__go" id="roGo"><span>Rechercher & générer</span></button>
       </div>
+      <p class="ro__live-note"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg> Recherche publique en temps réel via Open Library et AniList, structurée par l’IA locale.</p>
       <div class="ro__ex" id="roExamples"></div>
     </div>
 
-    <div class="ro__out" id="roOut"></div>
+    <div class="ro__out" id="roOut" aria-live="polite"></div>
   </div>
 </section>
 
@@ -536,11 +553,14 @@
 <div class="modal" id="modal" aria-hidden="true">
   <div class="modal__backdrop" data-close></div>
   <div class="modal__card" role="dialog" aria-modal="true">
-    <button class="modal__close" data-close aria-label="Fermer">✕</button>      <div class="modal__cover" id="mCover"></div>
-      <div class="modal__body">
+    <div class="modal__cover" id="mCover"></div>
+    <div class="modal__body">
       <div class="modal__top">
         <span class="modal__format" id="mFormat"></span>
-        <button class="modal__fav" id="mFav" aria-pressed="false" aria-label="Ajouter aux favoris" title="Favori"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg></button>
+        <div class="modal__top-actions">
+          <button class="modal__fav" id="mFav" aria-pressed="false" aria-label="Ajouter aux favoris" title="Favori"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg></button>
+          <button class="modal__close" data-close aria-label="Fermer">✕</button>
+        </div>
       </div>
       <h3 class="modal__title" id="mTitle"></h3>
       <div class="modal__author" id="mAuthor"></div>
@@ -562,7 +582,7 @@
         <div class="progress"><i id="mProgBar"></i></div>
       </div>
 
-      <!-- Aperçu des planches & galerie -->
+      <!-- Aperçu de la couverture -->
       <div class="gal" id="mGal" hidden>
         <div class="sec-h">
           <span class="sec-h__t"><svg class="ic" aria-hidden="true"><use href="#i-image"/></svg> Galerie — style graphique</span>
@@ -698,10 +718,10 @@
   </div>
 </dialog>
 
-<script src="data.js"></script>
-<script src="store.js"></script>
-<script src="covers.js"></script>
-<script src="ai.js"></script>
-<script src="app.js"></script>
+<script src="js/data.js"></script>
+<script src="js/store.js"></script>
+<script src="js/covers.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

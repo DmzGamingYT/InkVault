@@ -138,24 +138,39 @@
     mobileNav.setAttribute("aria-label", "Navigation mobile");
     mobileNav.innerHTML = $(".nav__links", nav).innerHTML;
     document.body.appendChild(mobileNav);
-    addEventListener("scroll", () => nav.classList.toggle("is-stuck", scrollY > 40), { passive: true });
 
     $$("[data-scroll]").forEach(el =>
       el.addEventListener("click", () => goTo(el.dataset.scroll)));
 
-    $$(".nav__link").forEach(a => a.addEventListener("click", e => {
+    const ids = ["hero", "collection", "stats", "reading", "add"];
+    const links = $$(".nav__link");
+    const setActive = id => links.forEach(l => l.classList.toggle("is-active", l.dataset.nav === id));
+
+    links.forEach(a => a.addEventListener("click", e => {
       e.preventDefault();
-      goTo(a.getAttribute("href").slice(1));
+      const id = a.getAttribute("href").slice(1);
+      setActive(id);
+      goTo(id);
     }));
 
-    const links = $$(".nav__link");
-    const io = new IntersectionObserver(entries => {
-      entries.forEach(en => {
-        if (!en.isIntersecting) return;
-        links.forEach(l => l.classList.toggle("is-active", l.dataset.nav === en.target.id));
+    let navFrame = 0;
+    const syncNav = () => {
+      navFrame = 0;
+      nav.classList.toggle("is-stuck", scrollY > 40);
+      const marker = scrollY + Math.min(innerHeight * .32, 260);
+      let active = ids[0];
+      ids.forEach(id => {
+        const section = $("#" + id);
+        if (section && section.offsetTop <= marker) active = id;
       });
-    }, { rootMargin: "-45% 0px -50% 0px" });
-    ["hero", "collection", "stats", "reading", "add"].forEach(id => { const s = $("#" + id); if (s) io.observe(s); });
+      if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) active = ids[ids.length - 1];
+      setActive(active);
+    };
+    addEventListener("scroll", () => {
+      if (!navFrame) navFrame = requestAnimationFrame(syncNav);
+    }, { passive: true });
+    addEventListener("resize", syncNav, { passive: true });
+    syncNav();
 
     initSkins();
   }
@@ -206,17 +221,39 @@
   function initParallax() {
     const stack = $("#heroStack");
     if (!stack || reduced()) return;
-    let ticking = false;
+    let ticking = false, lastY = -1;
     const apply = () => {
+      ticking = false;
       const y = Math.min(scrollY, innerHeight);
+      if (y === lastY) return;               /* hero dépassé : plus d'écriture de style */
+      lastY = y;
       stack.style.transform = `translate3d(0, ${y * .16}px, 0)`;
       stack.style.opacity = String(Math.max(0, 1 - y / (innerHeight * .95)));
-      ticking = false;
     };
     addEventListener("scroll", () => {
       if (!ticking) { ticking = true; requestAnimationFrame(apply); }
     }, { passive: true });
     apply();
+  }
+
+  /* ═══════════ FLUIDITÉ DU SCROLL ═══════════ */
+  function initScrollPerf() {
+    /* Suspendre les effets de survol pendant le défilement, sans bloquer les clics. */
+    const root = document.documentElement;
+    let idle = 0;
+    addEventListener("scroll", () => {
+      if (!idle) root.classList.add("is-scrolling");
+      clearTimeout(idle);
+      idle = setTimeout(() => { root.classList.remove("is-scrolling"); idle = 0; }, 140);
+    }, { passive: true });
+
+    /* Animations infinies du hero en pause quand il n'est plus visible */
+    const hero = $("#hero");
+    if (hero && typeof IntersectionObserver !== "undefined") {
+      new IntersectionObserver(([en]) => {
+        root.classList.toggle("hero-off", !en.isIntersecting);
+      }).observe(hero);
+    }
   }
 
   /* ═══════════ PILE FLOTTANTE DU HERO ═══════════ */
@@ -390,17 +427,26 @@
 
   function bindTilt(card) {
     if (!canHover() || reduced()) return;
-    card.addEventListener("pointermove", e => {
-      if (e.pointerType === "touch") return;
+    let frame = 0, ex = 0, ey = 0;
+    const apply = () => {
+      frame = 0;
+      if (!card.isConnected || document.documentElement.classList.contains("is-scrolling")) return;
       const r = card.getBoundingClientRect();
-      const px = (e.clientX - r.left) / r.width - .5;
-      const py = (e.clientY - r.top) / r.height - .5;
+      if (!r.width || !r.height) return;
+      const px = (ex - r.left) / r.width - .5;
+      const py = (ey - r.top) / r.height - .5;
       card.style.setProperty("--ry", (px * 9).toFixed(2) + "deg");
       card.style.setProperty("--rx", (-py * 9).toFixed(2) + "deg");
       card.style.setProperty("--mx", ((px + .5) * 100).toFixed(1) + "%");
       card.style.setProperty("--my", ((py + .5) * 100).toFixed(1) + "%");
+    };
+    card.addEventListener("pointermove", e => {
+      if (e.pointerType === "touch" || document.documentElement.classList.contains("is-scrolling")) return;
+      ex = e.clientX; ey = e.clientY;
+      if (!frame) frame = requestAnimationFrame(apply);   /* 1 calcul max par frame */
     });
     const reset = () => {
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
       card.style.removeProperty("--rx");
       card.style.removeProperty("--ry");
       card.style.removeProperty("--mx");
@@ -415,7 +461,8 @@
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
       coverObserver.unobserve(entry.target);
-      if (entry.target.isConnected) Covers.paint(entry.target, pendingCovers.get(entry.target));
+      const job = pendingCovers.get(entry.target);
+      if (job && entry.target.isConnected) Covers.paint(job.cover, job.it);
     });
   }, { rootMargin: "300px" });
 
@@ -466,7 +513,6 @@
                 aria-pressed="${!!it.fav}" aria-label="Favori">${ic("heart")}</button>
         <div class="card__cover" style="background:linear-gradient(155deg, ${it.color}, ${shade(it.color, -46)});">
           <div class="cover-scrim"></div>
-          <span class="card__format">${esc(it.format)}</span>
           <div>
             <div class="card__title">${esc(it.title)}</div>
             <div class="card__author">${esc(it.author)}</div>
@@ -480,7 +526,7 @@
           </div>
           <div class="card__row">
             <div class="card__meta">
-              ${starsHTML(it.rating)}
+              <span class="card__type">${esc(it.format)}</span>
               ${it.review ? `<span class="quote-mark" title="${esc(it.review)}">❝</span>` : ""}
             </div>
             <span class="status" data-s="${esc(it.status)}">${esc(it.status)}</span>
@@ -512,16 +558,17 @@
 
       fragment.appendChild(card);
       const cover = card.querySelector(".card__cover");
+      /* Observer la carte entière pour anticiper le chargement en grille comme en liste. */
       if (coverObserver) {
-        pendingCovers.set(cover, it);
-        coversToObserve.push(cover);
+        pendingCovers.set(card, { cover, it });
+        coversToObserve.push(card);
       } else Covers.paint(cover, it);
       bindTilt(card);
     });
 
     grid.classList.toggle("is-list", state.view === "list");
     grid.appendChild(fragment);
-    coversToObserve.forEach(cover => coverObserver.observe(cover));
+    coversToObserve.forEach(card => coverObserver.observe(card));
     if (progressBars.length) requestAnimationFrame(() => {
       progressBars.forEach(([bar, p]) => { if (bar.isConnected) bar.style.width = p + "%"; });
     });
@@ -577,15 +624,17 @@
     if (sort) { sort.disabled = on; sort.title = on ? "Le tri est remplacé par l’affinité d’ambiance" : ""; }
     if (!on) {
       state.vibe = null;
-      $("#vibeTags").innerHTML = "";
-      $("#vibeCount").innerHTML = "";
+      const tags = $("#vibeTags"), count = $("#vibeCount");
+      if (tags) tags.innerHTML = "";
+      if (count) count.innerHTML = "";
     }
   }
 
   function initVibe() {
     $("#vibeToggle").addEventListener("click", () => setVibeMode(state.mode !== "vibe"));
 
-    $("#vibeExamples").addEventListener("click", e => {
+    const examples = $("#vibeExamples");
+    if (examples) examples.addEventListener("click", e => {
       const b = e.target.closest(".chip--ex"); if (!b) return;
       const q = b.dataset.q;
       $("#search").value = q;
@@ -824,6 +873,20 @@
 
   /* ═══════════ STATISTIQUES ═══════════ */
   function renderStats() {
+    const completed = items.filter(i => i.status === "Terminé").length;
+    const rated = items.filter(i => Number(i.rating) > 0);
+    const readVolumes = items.reduce((sum, i) => sum + Math.max(0, Number(i.read) || 0), 0);
+    const average = rated.length
+      ? (rated.reduce((sum, i) => sum + Number(i.rating), 0) / rated.length).toFixed(1)
+      : "—";
+    const completion = items.length ? Math.round(completed / items.length * 100) : 0;
+
+    $("#statTotal").textContent = items.length;
+    $("#statRead").textContent = readVolumes;
+    $("#statCompletion").textContent = `${completion}% terminés`;
+    $("#statAverage").textContent = average === "—" ? average : `${average}/5`;
+    $("#statFavorites").textContent = items.filter(i => i.fav).length;
+
     // Barres formats
     const formats = ["Manga", "Comic", "Graphic Novel", "Webtoon"];
     const counts  = formats.map(f => items.filter(i => i.format === f).length);
@@ -946,8 +1009,7 @@
         ? ""
         : `${fmtDate(c.date)} — ${c.n} session${c.n > 1 ? "s" : ""}`;
       html += `<i class="hm-cell${c.n ? " l" + c.lv : ""}${c.n ? "" : " is-zero"}"
-                  data-lv="${c.lv}" style="--d:${Math.min(i, 300) * 3}ms"
-                  title="${esc(label)}"></i>`;
+                  data-lv="${c.lv}" title="${esc(label)}"></i>`;
     });
 
     wrap.innerHTML = html;
@@ -971,12 +1033,14 @@
         if (!en.isIntersecting) return;
         const c = en.target;
         c.classList.add("is-in");
-        $$(".bar__fill", c).forEach((b, i) => setTimeout(() => b.style.width = b.dataset.w + "%", i * 110));
-        $$(".spark__bar", c).forEach((b, i) => setTimeout(() => b.style.height = Math.max(b.dataset.h, 6) + "%", i * 80));
-        $$(".hm-cell", c).forEach(el => el.classList.add("is-in"));
-        const cb = c.querySelector("#chBar");
-        if (cb) setTimeout(() => cb.style.width = cb.dataset.w + "%", 220);
-        $$(".ins__fill", c).forEach((b, i) => setTimeout(() => b.style.width = b.dataset.w + "%", 180 + i * 90));
+        requestAnimationFrame(() => {
+          $$(".bar__fill", c).forEach(b => { b.style.width = b.dataset.w + "%"; });
+          $$(".spark__bar", c).forEach(b => { b.style.height = Math.max(b.dataset.h, 6) + "%"; });
+          const cb = c.querySelector("#chBar");
+          if (cb) cb.style.width = cb.dataset.w + "%";
+          $$(".ins__fill", c).forEach(b => { b.style.width = b.dataset.w + "%"; });
+          c.classList.add("is-stats-ready");
+        });
         statsIO.unobserve(c);
       });
     }, { threshold: .15 });
@@ -1494,38 +1558,6 @@
 
   /* ═══════════ GALERIE · ÉDITIONS · TIMELINE (fiche livre) ═══════════ */
 
-  /* Maquettes de planches générées (démo, aucun visuel copié) */
-  const GAL_LAYOUTS = [
-    [[30, 40, 340, 140], [30, 195, 160, 170], [210, 195, 160, 170], [30, 380, 340, 180]],
-    [[30, 40, 160, 180], [210, 40, 160, 180], [30, 235, 340, 130], [30, 380, 105, 180], [148, 380, 105, 180], [265, 380, 105, 180]],
-    [[30, 40, 340, 240], [30, 295, 340, 110], [30, 420, 160, 140], [210, 420, 160, 140]]
-  ];
-
-  function mockPage(it, n) {
-    const boxes = GAL_LAYOUTS[(n + it.id) % GAL_LAYOUTS.length];
-    const c = it.color;
-    /* Planche façon encrage : cases cerclées de noir, teinte discrète de la série */
-    const rects = boxes.map(([x, y, w, h], i) => {
-      const op = (0.06 + ((i * 37 + n * 13 + it.id * 7) % 16) / 100).toFixed(2);
-      const stroke = (i + n) % 2
-        ? `<path d="M${x + 14} ${y + h - 22} L${x + w * 0.42} ${y + 26} L${x + w - 14} ${y + h - 36}" stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round" fill="none" opacity=".38"/>` +
-          `<circle cx="${x + w * 0.66}" cy="${y + h * 0.42}" r="${Math.min(w, h) * 0.14}" fill="#1b1b1b" opacity=".22"/>`
-        : `<path d="M${x + 12} ${y + h * 0.3} Q${x + w / 2} ${y + h * 0.85} ${x + w - 12} ${y + h * 0.25}" stroke="#1b1b1b" stroke-width="3" stroke-linecap="round" fill="none" opacity=".34"/>`;
-      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${c}" opacity="${op}"/>` +
-             `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="url(#ht)"/>` +
-             stroke +
-             `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="none" stroke="#1b1b1b" stroke-width="3.5"/>`;
-    }).join("");
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">` +
-      `<defs><pattern id="ht" width="6" height="6" patternUnits="userSpaceOnUse">` +
-      `<circle cx="2" cy="2" r="1.15" fill="#000" opacity=".14"/></pattern></defs>` +
-      `<rect width="400" height="600" fill="#f6f3ea"/>` + rects +
-      `<rect width="400" height="600" fill="url(#ht)" opacity=".3"/>` +
-      `<text x="344" y="584" font-family="monospace" font-size="13" fill="#8a8578" text-anchor="end">${(it.id * 7 + n * 13) % 89 + 1}</text>` +
-      `</svg>`;
-    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-  }
 
   /* Affiche une vue dans la scène : préchargement puis fondu enchaîné
      (pas de flash blanc ni de saut de mise en page). */
@@ -1574,30 +1606,20 @@
   function renderGallery(it) {
     const gal = $("#mGal"); gal.hidden = false;
     const stage = $("#galStage"), thumbs = $("#galThumbs");
-    const views = [
-      { cap: "Planche — maquette générée", src: mockPage(it, 1) },
-      { cap: "Double page — maquette générée", src: mockPage(it, 2) }
-    ];
 
-    /* Emplacement de couverture réservé d'emblée : pas de saut 2 → 3 miniatures.
-       La planche s'affiche tout de suite ; la couverture prend la main à son arrivée
-       sauf si l'utilisateur a déjà choisi une autre vue. */
     stage.innerHTML = "";
     stage.classList.add("is-loading");
-    paintGalThumbs(thumbs, [{ pending: true }].concat(views), 1);
-    galShow(stage, views[0].src, views[0].cap);
+    paintGalThumbs(thumbs, [{ pending: true }], -1);
 
     Covers.resolve(it).catch(() => null).then(url => {
       if (state.openId !== it.id) return;   /* la fiche a changé entre-temps */
       const src = safeImageUrl(url);
-      const onIdx = $$("button.gal__thumb", thumbs).findIndex(t => t.classList.contains("is-on"));
-      const untouched = onIdx <= 0;
       if (!src) {
-        paintGalThumbs(thumbs, views, untouched ? 0 : onIdx);
+        gal.hidden = true;
         return;
       }
-      paintGalThumbs(thumbs, [{ cap: "Couverture", src }].concat(views), untouched ? 0 : onIdx + 1);
-      if (untouched) galShow(stage, src, "Couverture");
+      paintGalThumbs(thumbs, [{ cap: "Couverture", src }], 0);
+      galShow(stage, src, "Couverture");
     });
 
     const q = encodeURIComponent(`${it.title} ${it.author}`);
@@ -2069,13 +2091,31 @@
     </div>`;
 
   let lastPlan = null;
+  let orderRequest = 0;
 
-  function renderOrder(raw) {
+  async function renderOrder(raw) {
     const out = $("#roOut");
     const q = String(raw || "").trim();
-    if (!q) { lastPlan = null; out.innerHTML = RO_EMPTY; return; }
+    const request = ++orderRequest;
+    if (!q) {
+      lastPlan = null;
+      $("#roGo").disabled = false;
+      out.removeAttribute("aria-busy");
+      out.innerHTML = RO_EMPTY;
+      return;
+    }
 
-    const res = AI.readingOrder(q, items);
+    const go = $("#roGo");
+    go.disabled = true;
+    out.setAttribute("aria-busy", "true");
+    out.innerHTML = `<div class="ro__loading"><span>${ic("spark")}</span><b>Recherche en temps réel</b><p>Open Library et AniList répondent pendant que l’IA structure le parcours…</p></div>`;
+
+    const local = AI.readingOrder(q, items);
+    let res = local;
+    try { res = await AI.readingOrderLive(q, items); } catch (e) { res = local; }
+    if (request !== orderRequest) return;
+    go.disabled = false;
+    out.removeAttribute("aria-busy");
 
     if (res.kind === "none") {
       lastPlan = null;
@@ -2103,7 +2143,8 @@
     out.innerHTML = `
       <div class="ro__head">
         <div class="ro__head-main">
-          <span class="ro__kind${res.kind === "generated" ? " is-gen" : ""}">${
+          <span class="ro__kind${res.liveSources && res.liveSources.length ? " is-live" : res.kind === "generated" ? " is-gen" : ""}">${
+            res.liveSources && res.liveSources.length ? "✦ IA + données live" :
             res.kind === "generated" ? "✦ Ordre reconstruit" : "✦ Ordre de lecture"}</span>
           <h3 class="ro__title">${esc(res.title)}</h3>
           <p class="ro__blurb">${esc(res.blurb)}</p>
@@ -2112,6 +2153,7 @@
             <span class="is-lib"><b>${inLib}</b> dans ta bibliothèque</span>
             ${toFind ? `<span class="is-out"><b>${toFind}</b> à acquérir</span>` : ""}
             ${resume ? `<span>↳ reprise au tome ${resume.item.read + 1}/${resume.item.volumes} — ${esc(resume.item.title)}</span>` : ""}
+            ${res.liveSources && res.liveSources.length ? `<span class="is-live">${ic("globe")} ${esc(res.liveSources.join(" + "))} · ${res.liveCount} résultats</span>` : ""}
           </div>
         </div>
         <div class="ro__actions">
@@ -2144,6 +2186,7 @@
                 <div class="step__top">
                   <span class="step__kind">${KIND_LABEL[s.k] || s.k}</span>
                   ${lib}
+                  ${s.source && s.sourceUrl ? `<a class="step__source" href="${esc(s.sourceUrl)}" target="_blank" rel="noopener">${esc(s.source)} ${ic("external")}</a>` : ""}
                 </div>
                 ${head}
                 <div class="step__m">${meta}</div>
@@ -2528,6 +2571,7 @@
     initNav();
     buildHeroStack();
     initParallax();
+    initScrollPerf();
     initToolbar();
     initVibe();
     initForm();

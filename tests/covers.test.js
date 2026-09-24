@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'covers.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'covers.js'), 'utf8');
 
 function harness(fetch, PromiseImpl = Promise, cached) {
   const storage = new Map(cached === undefined ? [] : [['ink-covers-v2', cached]]);

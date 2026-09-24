@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'store.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'store.js'), 'utf8');
 const library = [{
   id: 1, title: 'Saga', author: 'B. K. Vaughan', format: 'Comic', year: 2012,
   volumes: 3, read: 2, rating: 4.5, status: 'En cours', color: '#abc',

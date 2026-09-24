@@ -49,7 +49,7 @@ Un clic sur **🎨** dans la barre du haut — le thème s'applique partout et s
 
 - **Catalogue** : grille/liste, filtres, favoris, recherche par titre ou auteur, notes, progression par tome.
 - **✦ Recherche par ambiance** : « un seinen sombre avec de la philosophie et de l'encre détaillée » → décomposition en facets + classement par affinité (%).
-- **✦ Ordres de lecture** : fils conducteurs pas-à-pas (Hickman, Marvel Cosmic, DC Crises…), croisés avec ta bibliothèque, copiables.
+- **✦ Ordres de lecture hybrides** : fils conducteurs pas-à-pas croisés avec ta bibliothèque, enrichis en temps réel par Open Library et AniList puis structurés par l’IA locale (cache 6 h, repli hors ligne), copiables et exportables.
 - **✦ Insights & Profil de lecture** : résumés mensuels générés localement, penchants, suggestion de relecture.
 - **✦ Smart Buy** : optimiseur de panier sous budget (knapsack) — « J'ai 50 € » → la meilleure combinaison de tomes.
 - **🌐 Fiches Auteurs 360°** : rôles par œuvre (scénario/dessin), style & thèmes, jauge de bibliographie, auteurs similaires, binômes célèbres — **bio Wikipédia et bibliographie complète enrichies en direct** (Open Library + Google Books + MangaDex pour les mangas, cache 7 jours, repli hors ligne sur la base locale).
@@ -94,21 +94,24 @@ git push --follow-tags    # → CI build & publie la release (~5 min)
 
 ## 📁 Structure
 
-| Fichier | Rôle |
+| Chemin | Rôle |
 |---|---|
-| `index.html` / `styles.css` | Interface + design system (thèmes via `data-skin`) |
-| `data.js` | Bibliothèque de démonstration |
-| `store.js` | Persistance localStorage |
-| `ai.js` | **Moteur d'IA local** (vibe, reading orders, insights, smart buy, auteurs, timelines) + **enrichissements live** (Wikipédia, Open Library, Google Books, MangaDex, cache 7 j) |
-| `covers.js` | Résolution des couvertures (AniList / Jikan / Google Books / Open Library) |
-| `app.js` | Câblage de l'interface |
+| `src/index.html` | Structure de l’interface |
+| `src/styles/` | Design system et thèmes via `data-skin` |
+| `src/js/data.js` | Bibliothèque de démonstration |
+| `src/js/store.js` | Persistance localStorage |
+| `src/js/ai.js` | **Moteur d'IA local** (vibe, reading orders, insights, smart buy, auteurs, timelines) + **enrichissements live** (Wikipédia, Open Library, AniList, Google Books, MangaDex, caches 6 h/7 j) |
+| `src/js/covers.js` | Résolution des couvertures (AniList / Jikan / Google Books / Open Library) |
+| `src/js/app.js` | Câblage de l'interface |
 | `electron/` | Coquille desktop (instance unique, export PDF natif via `preload.js`, confirm système, auto-update) |
+| `tests/` | Tests automatisés Node.js |
 | `scripts/` | `make-deb.sh` + `mk-ar.py` — fabrique de `.deb` sans fpm (macOS & Linux) |
+| `docs/screenshots/` | Captures utilisées par la documentation |
 | `.github/workflows/` | `release.yml` — build & publication par tag |
 
 ## 🔒 Confidentialité
 
-La bibliothèque, les notes et les calculs de recommandation restent en local. Une connexion est utilisée pour la recherche de couvertures, l'enrichissement des fiches auteurs, les polices Google au chargement et la recherche de mises à jour sur GitHub (AppImage). Ces services peuvent recevoir les titres/auteurs recherchés et des informations réseau comme l'adresse IP. Les fiches auteurs disposent d'un cache local de 7 jours et d'un repli hors ligne. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas ; MangaDex est crédité dans l'interface lorsque cette source est active.
+La bibliothèque, les notes et les calculs de recommandation restent en local. Une connexion est utilisée pour la recherche de couvertures, les ordres de lecture live (Open Library et AniList), l'enrichissement des fiches auteurs, les polices Google au chargement et la recherche de mises à jour sur GitHub (AppImage). Ces services peuvent recevoir les titres/auteurs recherchés et des informations réseau comme l'adresse IP. Les parcours live sont mis en cache 6 heures ; les fiches auteurs disposent d'un cache local de 7 jours et d'un repli hors ligne. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas ; MangaDex est crédité dans l'interface lorsque cette source est active.
 
 ## 📝 Licence
 

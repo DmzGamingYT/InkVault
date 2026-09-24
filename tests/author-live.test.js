@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'ai.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'js', 'ai.js'), 'utf8');
 
 test('la bibliographie en cache recalcule la possession à chaque consultation', async () => {
   const cached = {

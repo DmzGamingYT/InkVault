@@ -3,7 +3,7 @@ node_modules/
 dist/
 release/
 
-# Artefacts de prévisualisation / audit locaux (générés depuis index.html + CSS + JS)
+# Artefacts de prévisualisation / audit locaux (générés depuis src/)
 _preview.html
 _audit.html
 

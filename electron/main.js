@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════
    INKVAULT — Coquille desktop (Electron)
-   Charge l'app statique à la racine du projet.
+   Charge l'application statique depuis src/.
    ══════════════════════════════════════════════ */
 
 const { app, BrowserWindow, shell, dialog, ipcMain } = require("electron");
@@ -141,7 +141,7 @@ function createWindow() {
     }
   });
 
-  const indexPath = path.join(__dirname, "..", "index.html");
+  const indexPath = path.join(__dirname, "..", "src", "index.html");
   const indexUrl = pathToFileURL(indexPath);
   win.loadFile(indexPath);
 

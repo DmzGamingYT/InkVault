@@ -1625,6 +1625,21 @@ const AI = (() => {
       } finally { if (t) clearTimeout(t); }
     }
 
+    async function postJSON(url, body, ms = 8000) {
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const t = ctrl ? setTimeout(() => ctrl.abort(), ms) : 0;
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(body),
+          ...(ctrl ? { signal: ctrl.signal } : {})
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } finally { if (t) clearTimeout(t); }
+    }
+
     /* Similarité locale (bigrammes) — indépendante du reste du moteur */
     const sml = (a, b) => {
       a = nrm(a); b = nrm(b);
@@ -1797,6 +1812,100 @@ const AI = (() => {
       }
     }
 
+    /* Recherche d'ordres en temps réel : Open Library pour livres/comics,
+       AniList pour mangas et relations préquelle/suite. Les réponses sont
+       mises en cache 6 h afin de respecter les quotas des API publiques. */
+    const ORDER_TTL = 6 * 3600000;
+    const orderQuery = raw => String(raw || "")
+      .replace(/\b(dans quel ordre|quel ordre|ordre de lecture|par quoi commencer|comment lire|lire le|lire la|lire les|run de|saga de)\b/gi, " ")
+      .replace(/[?!:;,]+/g, " ").replace(/\s+/g, " ").trim();
+
+    async function olOrderWorks(query) {
+      try {
+        const fields = "key,title,author_name,first_publish_year,cover_i,edition_count";
+        const d = await getJSON("https://openlibrary.org/search.json?q=" +
+          encodeURIComponent(query) + "&limit=18&fields=" + encodeURIComponent(fields), 6500);
+        return ((d && d.docs) || []).map((w, rank) => ({
+          t: w.title || "",
+          a: (w.author_name && w.author_name[0]) || "Auteur inconnu",
+          y: w.first_publish_year || 0,
+          source: "Open Library",
+          sourceUrl: w.key ? "https://openlibrary.org" + w.key : "",
+          rank,
+          relation: "publication"
+        })).filter(w => w.t);
+      } catch (e) { return []; }
+    }
+
+    async function aniOrderWorks(query) {
+      const gql = `query ($search:String!) {
+        Page(page:1,perPage:8) {
+          media(search:$search,type:MANGA,sort:SEARCH_MATCH) {
+            id format volumes startDate { year }
+            title { english romaji native }
+            staff(perPage:2) { nodes { name { full } } }
+            relations { edges { relationType node {
+              id type format volumes startDate { year }
+              title { english romaji native }
+              staff(perPage:1) { nodes { name { full } } }
+            } } }
+          }
+        }
+      }`;
+      try {
+        const d = await postJSON("https://graphql.anilist.co", { query: gql, variables: { search: query } }, 6500);
+        const media = (((d || {}).data || {}).Page || {}).media || [];
+        const out = [];
+        const push = (m, relation, rank) => {
+          if (!m || m.type && m.type !== "MANGA") return;
+          const title = (m.title && (m.title.english || m.title.romaji || m.title.native)) || "";
+          if (!title) return;
+          const staff = (((m.staff || {}).nodes) || [])[0];
+          out.push({
+            t: title,
+            a: (staff && staff.name && staff.name.full) || "Auteur inconnu",
+            y: (m.startDate && m.startDate.year) || 0,
+            source: "AniList",
+            sourceUrl: m.id ? "https://anilist.co/manga/" + m.id : "",
+            rank,
+            relation: relation || "publication"
+          });
+        };
+        media.forEach((m, rank) => {
+          push(m, "principal", rank);
+          (((m.relations || {}).edges) || []).forEach((edge, i) => {
+            if (["PREQUEL", "SEQUEL", "SIDE_STORY", "PARENT"].includes(edge.relationType))
+              push(edge.node, edge.relationType.toLowerCase(), rank + (i + 1) / 10);
+          });
+        });
+        return out;
+      } catch (e) { return []; }
+    }
+
+    async function readingSearch(raw) {
+      const query = orderQuery(raw) || String(raw || "").trim();
+      const cacheKey = "iv-order-live-v1-" + nrm(query);
+      let cached = null;
+      if (LS) { try { cached = JSON.parse(LS.getItem(cacheKey) || "null"); } catch (e) {} }
+      if (cached && cached.data && Date.now() - cached.at < ORDER_TTL) return cached.data;
+
+      const [ol, ani] = await Promise.all([olOrderWorks(query), aniOrderWorks(query)]);
+      const map = new Map();
+      [...ani, ...ol].forEach(w => {
+        const k = nrm(w.t);
+        if (!k || w.t.length < 2) return;
+        const prev = map.get(k);
+        if (!prev || (prev.source === "Open Library" && w.source === "AniList")) map.set(k, w);
+      });
+      const data = {
+        query,
+        works: [...map.values()].slice(0, 24),
+        sources: [ani.length ? "AniList" : "", ol.length ? "Open Library" : ""].filter(Boolean)
+      };
+      if (LS) { try { LS.setItem(cacheKey, JSON.stringify({ at: Date.now(), data })); } catch (e) {} }
+      return data;
+    }
+
     function withOwnership(data, name, items) {
       const libNorms = (items || []).filter(i => i.author === name).map(i => nrm(i.title));
       const works = data.works.map(w => {
@@ -1876,12 +1985,89 @@ const AI = (() => {
       return withOwnership(data, name, items);
     }
 
-    return { authorLive };
+    return { authorLive, readingSearch };
   })();
+
+  async function readingOrderLive(raw, items) {
+    items = items || [];
+    const base = readingOrder(raw, items);
+    const live = await Live.readingSearch(raw);
+    if (!live.works.length) return base;
+
+    const findLive = title => {
+      let best = null, score = 0;
+      live.works.forEach(w => {
+        const s = sim(title, w.t);
+        if (s > score) { score = s; best = w; }
+      });
+      return score >= 58 ? best : null;
+    };
+
+    if (base.kind !== "none") {
+      const used = new Set();
+      const steps = base.steps.map(step => {
+        const hit = findLive(step.t);
+        if (!hit) return step;
+        used.add(key(hit.t));
+        return {
+          ...step,
+          y: step.y || hit.y,
+          source: hit.source,
+          sourceUrl: hit.sourceUrl
+        };
+      });
+
+      if (base.kind === "generated") {
+        live.works.filter(w => !used.has(key(w.t))).slice(0, 6).forEach(w => steps.push({
+          t: w.t, a: w.a, y: w.y, k: "contexte",
+          why: `Résultat vérifié en temps réel via ${w.source}, placé selon sa date de première publication.`,
+          source: w.source, sourceUrl: w.sourceUrl
+        }));
+      }
+
+      return {
+        ...base,
+        steps: attachLibrary(steps, items),
+        liveSources: live.sources,
+        liveCount: live.works.length
+      };
+    }
+
+    const relationRank = { prequel: 0, parent: 0, principal: 1, publication: 2, side_story: 3, sequel: 4 };
+    const volumeNo = title => {
+      const m = String(title).match(/(?:vol(?:ume)?|tome|book|#)\s*[.:#-]?\s*(\d+)/i);
+      return m ? +m[1] : 999;
+    };
+    const works = [...live.works].sort((a, b) =>
+      ((relationRank[a.relation] ?? 2) - (relationRank[b.relation] ?? 2)) ||
+      ((a.y || 9999) - (b.y || 9999)) || volumeNo(a.t) - volumeNo(b.t) || a.rank - b.rank
+    ).slice(0, 14);
+    const steps = works.map((w, i) => ({
+      t: w.t, a: w.a, y: w.y,
+      k: i === 0 || w.relation === "principal" || w.relation === "prequel" ? "essentiel" : "contexte",
+      why: w.relation === "prequel"
+        ? `Préquelle reliée à la série par AniList : à lire avant le récit principal.`
+        : w.relation === "sequel"
+          ? `Suite officielle reliée par AniList : à lire après les volumes précédents.`
+          : `Métadonnée trouvée en temps réel via ${w.source}, ordonnée par relation et première publication.`,
+      source: w.source, sourceUrl: w.sourceUrl
+    }));
+
+    return {
+      kind: "live",
+      q: String(raw || "").trim(),
+      title: `Parcours live — ${live.query}`,
+      blurb: "Résultats publics récents, dédupliqués puis structurés par l’IA locale selon les relations éditoriales, les volumes et les dates.",
+      note: "Cet ordre est reconstruit à partir de métadonnées publiques et peut nécessiter une vérification éditoriale pour les crossovers complexes.",
+      steps: attachLibrary(steps, items),
+      liveSources: live.sources,
+      liveCount: live.works.length
+    };
+  }
 
   /* ═══════════════ API ═══════════════ */
   return {
-    vibe, readingOrder, insights, orderSuggestions, tagsOf, sim, key,
+    vibe, readingOrder, readingOrderLive, insights, orderSuggestions, tagsOf, sim, key,
     smartBuy, shopOf, unitPrice, oopOf, AFFILIATES,
     author, timeline, EDITIONS, AUTHORS, CREDITS,
     authorLive: Live.authorLive
