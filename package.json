@@ -1,7 +1,7 @@
 {
   "name": "inkvault",
   "productName": "InkVault",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Bibliothèque comics & mangas — catalogue, stats et IA locale, en app desktop",
   "main": "electron/main.js",
   "author": "DmzGamingYT",
