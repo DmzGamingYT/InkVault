@@ -1,118 +1,198 @@
-# 📚 InkVault — Bibliothèque Comics & Mangas
+<div align="center">
 
-[![📦 Release Linux](https://github.com/DmzGamingYT/InkVault/actions/workflows/release.yml/badge.svg)](https://github.com/DmzGamingYT/InkVault/actions/workflows/release.yml)
-[![Dernière release](https://img.shields.io/github/v/release/DmzGamingYT/InkVault?label=release)](https://github.com/DmzGamingYT/InkVault/releases)
+# InkVault
+
+### Votre bibliothèque de comics, mangas et webtoons, vraiment personnelle.
+
+Catalogue, progression, statistiques et recommandations locales dans une application desktop conçue pour Linux.
+
+[![Release Linux](https://github.com/DmzGamingYT/InkVault/actions/workflows/release.yml/badge.svg)](https://github.com/DmzGamingYT/InkVault/actions/workflows/release.yml)
+[![Dernière version](https://img.shields.io/github/v/release/DmzGamingYT/InkVault?display_name=tag&sort=semver)](https://github.com/DmzGamingYT/InkVault/releases/latest)
+[![Téléchargements](https://img.shields.io/github/downloads/DmzGamingYT/InkVault/total)](https://github.com/DmzGamingYT/InkVault/releases)
 [![Licence MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
-![Plateforme](https://img.shields.io/badge/platform-Linux%20%C2%B7%20x64%20%7C%20arm64-2ea44f)
+[![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20arm64-2ea44f?logo=linux&logoColor=white)](https://github.com/DmzGamingYT/InkVault/releases/latest)
 
-**Comics, mangas et webtoons : catalogue, notes, progression, statistiques — et une IA de recommandation qui tourne localement, enrichie par de vraies API publiques quand elle est en ligne.**
-Site statique en HTML/CSS/JS pur + coquille **desktop Electron pour Linux**. Ta bibliothèque est enregistrée localement ; les couvertures, fiches auteurs et polices peuvent nécessiter des requêtes réseau.
+[**Télécharger InkVault**](https://github.com/DmzGamingYT/InkVault/releases/latest) · [Fonctionnalités](#-fonctionnalités) · [Installation](#-installation) · [Développement](#-développement)
 
-## 🎨 Les 6 thèmes graphiques
+</div>
+
+![Aperçu du thème Gotham d’InkVault](docs/screenshots/theme-gotham.jpg)
+
+## Pourquoi InkVault ?
+
+InkVault rassemble votre collection et votre suivi de lecture dans une interface rapide, visuelle et personnalisable. L’application fonctionne sans compte : la bibliothèque, les notes et les recommandations restent enregistrées localement sur votre machine.
+
+| Une collection claire | Une aide à la découverte | Vos données, chez vous |
+|---|---|---|
+| Recherche, filtres, favoris, notes et progression par tome. | Ambiances, ordres de lecture, profils et suggestions contextualisées. | Stockage local, sauvegarde JSON et aucun compte obligatoire. |
+
+> InkVault est une application **HTML/CSS/JavaScript sans framework**, distribuée avec **Electron pour Linux**. Certaines fonctions d’enrichissement utilisent des services publics lorsqu’une connexion est disponible.
+
+## ✨ Fonctionnalités
+
+### Organiser sa bibliothèque
+
+- Affichage en **grille ou liste**, recherche instantanée et filtres par format ou statut.
+- Suivi des **tomes lus**, de la progression, des notes, des favoris et des critiques.
+- Ajout et retrait rapides depuis les fiches ou les bibliographies d’auteurs.
+- Variantes d’édition persistantes et galerie de couvertures avec visionneuse.
+- Sauvegarde complète en **JSON** et export de la collection en **Markdown ou PDF**.
+
+### Découvrir sa prochaine lecture
+
+- **Recherche par ambiance** : une phrase libre est transformée en critères puis comparée à la collection.
+- **Ordres de lecture hybrides** : parcours structurés à partir de la bibliothèque et enrichis par Open Library et AniList.
+- **Profil de lecture** : synthèses mensuelles, tendances et suggestions de relecture calculées localement.
+- **Smart Buy** : sélection optimale de tomes en fonction d’un budget donné.
+- **Fiches auteurs 360°** : biographies, œuvres, rôles, thèmes, collaborations et auteurs similaires.
+- **Double timeline** : ordre de publication et chronologie interne d’un univers.
+
+### Acheter et exporter
+
+- Liens de recherche vers Fnac, Amazon, BDFugue, Place des Libraires, Canal BD, Vinted, Rakuten et momox.
+- Export natif en PDF sur desktop, impression depuis le navigateur et copie des parcours en Markdown.
+- Cache local et repli hors ligne pour conserver une expérience utile sans connexion.
+
+## 🎨 Six identités visuelles
+
+Le sélecteur de thème applique instantanément l’apparence choisie à toute l’interface et mémorise la préférence.
 
 <table>
   <tr>
-    <td align="center" width="50%">
+    <td align="center" width="33%">
       <img src="docs/screenshots/theme-gotham.jpg" alt="Thème Gotham" width="100%"><br>
-      <b>🌙 Gotham</b> — sombre & néons discrets, idéal la nuit
+      <strong>Gotham</strong><br><sub>Sombre et néons discrets</sub>
     </td>
-    <td align="center" width="50%">
+    <td align="center" width="33%">
       <img src="docs/screenshots/theme-ink.jpg" alt="Thème Manga Ink" width="100%"><br>
-      <b>🖋️ Manga Ink</b> — N&B tranché, trames de screentone
+      <strong>Manga Ink</strong><br><sub>Noir, blanc et trames</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/theme-vintage.jpg" alt="Thème Comics Vintage" width="100%"><br>
+      <strong>Comics Vintage</strong><br><sub>Papier et points Ben-Day</sub>
     </td>
   </tr>
   <tr>
-    <td align="center">
-      <img src="docs/screenshots/theme-vintage.jpg" alt="Thème Comics Vintage" width="100%"><br>
-      <b>🗞️ Comics Vintage</b> — papier jauni, points Ben-Day
-    </td>
     <td align="center">
       <img src="docs/screenshots/theme-claire.jpg" alt="Thème Ligne Claire" width="100%"><br>
-      <b>✏️ Ligne Claire</b> — pastel franco-belge sobre
+      <strong>Ligne Claire</strong><br><sub>Pastel franco-belge</sub>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <img src="docs/screenshots/theme-batman.jpg" alt="Thème Batman" width="100%"><br>
-      <b>🦇 Batman</b> — batsignal doré, bleu nuit
+      <strong>Batman</strong><br><sub>Bleu nuit et or</sub>
     </td>
     <td align="center">
       <img src="docs/screenshots/theme-onepiece.jpg" alt="Thème One Piece" width="100%"><br>
-      <b>☀️ One Piece</b> — paille, or & bleu marine
+      <strong>One Piece</strong><br><sub>Paille, marine et soleil</sub>
     </td>
   </tr>
 </table>
 
-Un clic sur **🎨** dans la barre du haut — le thème s'applique partout et se souvient.
+## 📦 Installation
 
-## ✨ Fonctionnalités
+Les paquets officiels sont disponibles sur la page **[Releases](https://github.com/DmzGamingYT/InkVault/releases/latest)** pour Linux `x86_64` et `arm64`.
 
-- **Catalogue** : grille/liste, filtres, favoris, recherche par titre ou auteur, notes, progression par tome.
-- **✦ Recherche par ambiance** : « un seinen sombre avec de la philosophie et de l'encre détaillée » → décomposition en facets + classement par affinité (%).
-- **✦ Ordres de lecture hybrides** : fils conducteurs pas-à-pas croisés avec ta bibliothèque, enrichis en temps réel par Open Library et AniList puis structurés par l’IA locale (cache 6 h, repli hors ligne), copiables et exportables.
-- **✦ Insights & Profil de lecture** : résumés mensuels générés localement, penchants, suggestion de relecture.
-- **✦ Smart Buy** : optimiseur de panier sous budget (knapsack) — « J'ai 50 € » → la meilleure combinaison de tomes.
-- **🌐 Fiches Auteurs 360°** : rôles par œuvre (scénario/dessin), style & thèmes, jauge de bibliographie, auteurs similaires, binômes célèbres — **bio Wikipédia et bibliographie complète enrichies en direct** (Open Library + Google Books + MangaDex pour les mangas, cache 7 jours, repli hors ligne sur la base locale).
-- **🖼 Fiche livre immersive** : galerie de visuels illustratifs, variantes d'édition persistées, **double timeline** publication vs chronologie d'univers.
-- **🛒 Où l'acheter ?** : liens multi-enseignes (Fnac, Amazon, BDFugue, Place des Libraires, Canal BD… + occasion Vinted, Rakuten, momox) avec recherche pré-remplie, prêts pour l'affiliation.
-- **⤓ Export** : bibliothèque **et** ordres de lecture en **Markdown** ou **PDF** (dialogue natif sur desktop, boîte d'impression en ligne) + sauvegarde JSON complète.
-- **➕ Ajout au clic** : dans la bibliographie live d'un auteur, un clic sur un titre l'ajoute à ta collection ; un ouvrage ajouté peut être retiré directement avec la poubelle. Cliquer sur une couverture l'ouvre dans une visionneuse agrandie.
-- **🎨 6 thèmes** : Manga Ink, Comics Vintage, Gotham, Ligne Claire, Batman, One Piece.
-
-## 📦 Installation — Linux
-
-| Format | x86_64 | arm64 |
+| Format | Idéal pour | Installation |
 |---|---|---|
-| **AppImage** | `InkVault-*-linux-x86_64.AppImage` | `InkVault-*-linux-arm64.AppImage` |
-| **.deb** (Debian/Ubuntu) | `apt install ./inkvault-*-amd64.deb` | `apt install ./inkvault-*-arm64.deb` |
-| **tar.gz** portable | `inkvault-*.tar.gz` | `inkvault-*-arm64.tar.gz` |
+| **AppImage** | Utilisation portable et mises à jour automatiques | Rendre le fichier exécutable puis le lancer |
+| **`.deb`** | Debian, Ubuntu et distributions dérivées | `sudo apt install ./inkvault-*.deb` |
+| **`.tar.gz`** | Installation portable manuelle | Extraire l’archive puis lancer InkVault |
 
-Tous les fichiers sont sur la **[page des releases](https://github.com/DmzGamingYT/InkVault/releases)**.
+### AppImage
 
-> **🚀 Releases automatiques** : chaque tag `v*` déclenche la CI ([`.github/workflows/release.yml`](.github/workflows/release.yml)) qui build les 6 paquets (x64 + arm64) et publie la release — zéro build local.
->
-> **🔄 Mises à jour automatiques (AppImage x64 et arm64)** : lance l'AppImage depuis un dossier accessible en écriture (par exemple `~/Applications`), avec une connexion Internet. Au lancement puis toutes les six heures si elle reste ouverte, l'application cherche une nouvelle release GitHub et la télécharge en arrière-plan. Dès la fin du téléchargement, elle ferme et relance automatiquement l'application avec la nouvelle version. **Toute saisie non enregistrée est perdue lors de cette relance** : termine tes modifications avant de laisser l'application ouverte longtemps. Si l'app est fermée avant la fin du téléchargement, elle réessaiera au lancement suivant. Les erreurs sont consignées dans `update-errors.log` dans le dossier de données de l'application.
->
-> **Si tu utilises déjà un `.deb` ou un `tar.gz`** : ces formats ne se mettent pas à jour automatiquement ici. Pour ne plus retélécharger les versions à la main, sauvegarde d'abord ta bibliothèque en JSON puis passe **une fois** à l'AppImage correspondant à ton architecture (sur la page des releases). Sinon, il faudrait mettre en place un dépôt APT pour le `.deb`. Si une ancienne installation ne reçoit pas encore les mises à jour, installe une fois la nouvelle AppImage pour amorcer ce mécanisme.
+```bash
+chmod +x InkVault-*-linux-*.AppImage
+./InkVault-*-linux-*.AppImage
+```
+
+Placez de préférence l’AppImage dans un dossier accessible en écriture, par exemple `~/Applications`, afin de permettre les mises à jour automatiques.
+
+<details>
+<summary><strong>Comment fonctionnent les mises à jour ?</strong></summary>
+
+L’AppImage vérifie les nouvelles versions au lancement, puis toutes les six heures tant que l’application reste ouverte. Une version disponible est téléchargée en arrière-plan avant le redémarrage automatique de l’application.
+
+- Enregistrez les modifications en cours pour éviter de perdre une saisie lors du redémarrage.
+- Les erreurs de mise à jour sont consignées dans `update-errors.log`, dans le dossier de données de l’application.
+- Les paquets `.deb` et `.tar.gz` ne se mettent pas à jour automatiquement ; installez la nouvelle version depuis les Releases.
+
+</details>
+
+## 🔒 Données et confidentialité
+
+| Reste local | Peut utiliser Internet |
+|---|---|
+| Bibliothèque, notes, progression, favoris, variantes et calculs de recommandation. | Couvertures, biographies, bibliographies, ordres de lecture enrichis, polices et vérification des mises à jour. |
+
+InkVault ne nécessite aucun compte et n’intègre pas de télémétrie applicative. Les recherches en ligne peuvent transmettre les titres ou auteurs demandés, ainsi que les informations réseau habituelles, aux services concernés : Wikipédia, Open Library, AniList, Google Books, MangaDex, Jikan, Google Fonts et GitHub.
+
+Les parcours enrichis sont mis en cache pendant 6 heures et les fiches auteurs pendant 7 jours. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas, avec attribution dans l’interface.
 
 ## 🛠 Développement
 
-```bash
-git clone https://github.com/DmzGamingYT/InkVault.git && cd InkVault
-npm install
-npm start                 # app Electron en dev
-npm run dist:linux        # AppImage + tar.gz + .deb (x64)
-npm run dist:linux:arm64  # idem pour ARM64
-```
+### Prérequis
 
-Pour publier une nouvelle version après validation, incrémenter la version, créer le tag et le pousser :
+- [Node.js](https://nodejs.org/) 22 ou version compatible
+- npm
+- Linux, macOS ou Windows pour le développement ; les releases distribuées actuellement ciblent Linux
+
+### Lancer le projet
 
 ```bash
-npm version patch         # bump package.json + tag vX.Y.Z
-git push --follow-tags    # → CI build & publie la release (~5 min)
+git clone https://github.com/DmzGamingYT/InkVault.git
+cd InkVault
+npm ci
+npm start
 ```
 
-## 📁 Structure
+### Vérifier les changements
 
-| Chemin | Rôle |
-|---|---|
-| `src/index.html` | Structure de l’interface |
-| `src/styles/` | Design system et thèmes via `data-skin` |
-| `src/js/data.js` | Bibliothèque de démonstration |
-| `src/js/store.js` | Persistance localStorage |
-| `src/js/ai.js` | **Moteur d'IA local** (vibe, reading orders, insights, smart buy, auteurs, timelines) + **enrichissements live** (Wikipédia, Open Library, AniList, Google Books, MangaDex, caches 6 h/7 j) |
-| `src/js/covers.js` | Résolution des couvertures (AniList / Jikan / Google Books / Open Library) |
-| `src/js/app.js` | Câblage de l'interface |
-| `electron/` | Coquille desktop (instance unique, export PDF natif via `preload.js`, confirm système, auto-update) |
-| `tests/` | Tests automatisés Node.js |
-| `scripts/` | `make-deb.sh` + `mk-ar.py` — fabrique de `.deb` sans fpm (macOS & Linux) |
-| `docs/screenshots/` | Captures utilisées par la documentation |
-| `.github/workflows/` | `release.yml` — build & publication par tag |
+```bash
+npm test       # tests automatisés Node.js
+npm run check  # vérification syntaxique des scripts
+```
 
-## 🔒 Confidentialité
+### Construire les paquets Linux
 
-La bibliothèque, les notes et les calculs de recommandation restent en local. Une connexion est utilisée pour la recherche de couvertures, les ordres de lecture live (Open Library et AniList), l'enrichissement des fiches auteurs, les polices Google au chargement et la recherche de mises à jour sur GitHub (AppImage). Ces services peuvent recevoir les titres/auteurs recherchés et des informations réseau comme l'adresse IP. Les parcours live sont mis en cache 6 heures ; les fiches auteurs disposent d'un cache local de 7 jours et d'un repli hors ligne. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas ; MangaDex est crédité dans l'interface lorsque cette source est active.
+```bash
+npm run dist:linux        # x86_64 : AppImage, tar.gz et .deb
+npm run dist:linux:arm64  # arm64 : AppImage, tar.gz et .deb
+```
 
-## 📝 Licence
+Chaque tag `v*` déclenche également le workflow [Release Linux](.github/workflows/release.yml), qui exécute les tests, construit les six paquets et publie automatiquement une GitHub Release.
 
-MIT — voir [LICENSE](LICENSE).
+```bash
+npm version patch
+git push --follow-tags
+```
+
+## 🗂️ Architecture
+
+```text
+InkVault/
+├── src/
+│   ├── index.html          # interface
+│   ├── styles/
+│   │   └── styles.css      # design system et thèmes
+│   └── js/
+│       ├── app.js          # contrôleur de l’interface
+│       ├── ai.js           # recommandations et enrichissements
+│       ├── covers.js       # résolution des couvertures
+│       ├── data.js         # données de démonstration
+│       └── store.js        # validation et persistance locale
+├── electron/
+│   ├── main.js             # fenêtre, exports et mises à jour
+│   └── preload.js          # pont sécurisé vers Electron
+├── tests/                  # tests automatisés
+├── scripts/                # fabrication des paquets .deb
+├── docs/screenshots/       # captures de la documentation
+└── .github/workflows/      # intégration et publication continues
+```
+
+## 🤝 Contribuer
+
+Les rapports de bugs et propositions sont les bienvenus dans les **[Issues GitHub](https://github.com/DmzGamingYT/InkVault/issues)**. Avant une contribution, lancez `npm test` et `npm run check` afin de vérifier que le comportement existant est conservé.
+
+## Licence
+
+InkVault est distribué sous licence [MIT](LICENSE).
