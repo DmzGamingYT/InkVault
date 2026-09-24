@@ -124,8 +124,14 @@ function initUpdater() {
   setInterval(check, 6 * 60 * 60 * 1000).unref();
 }
 
+const APP_ICON = path.join(__dirname, "icon.png");
+
 function createWindow() {
+  /* Paquet macOS : l'icns du bundle s'applique ; en dev, on force celle du Dock */
+  if (process.platform === "darwin" && !app.isPackaged && app.dock) app.dock.setIcon(APP_ICON);
+
   const win = new BrowserWindow({
+    icon: APP_ICON,          // fenêtre et barre des tâches (Linux / Windows)
     width: 1440,
     height: 900,
     minWidth: 380,

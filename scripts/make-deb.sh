@@ -23,7 +23,7 @@ esac
 
 VERSION=$(node -p "require('./package.json').version")
 OUT="dist/inkvault-${VERSION}-${DEB_ARCH}.deb"
-ICONS="node_modules/app-builder-lib/templates/icons/electron-linux"
+ICONS="build/icons"     # générées par scripts/make-icon.py
 
 [ -d "$UNPACKED" ] || { echo "✖ $UNPACKED introuvable — lance electron-builder d'abord"; exit 1; }
 [ -x "$UNPACKED/inkvault" ] || { echo "✖ exécutable introuvable dans $UNPACKED"; exit 1; }

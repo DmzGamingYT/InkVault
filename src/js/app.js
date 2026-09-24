@@ -1158,198 +1158,273 @@
     toastTimer = setTimeout(() => t.classList.remove("is-on"), 4000);
   }
 
-  /* ═══════════ FICHE AUTEUR 360° — RÉSEAU ARTISTIQUE ═══════════ */
+  /* ═══════════ FICHE AUTEUR — APERÇU · ŒUVRES · RÉSEAU ═══════════ */
   const amodal = $("#amodal");
+  const LIVE_LIMIT = 18;
   let liveSeq = 0;
   let lastAuthor = null;          // dernière fiche ouverte (pour le croisement live)
-  let liveWorks = [];             // dernière bibliographie live affichée (clic → ajout)
+  let liveWorks = [];             // bibliographie live, volumes regroupés par série
   let liveAuthor = null;          // auteur de cette bibliographie
+  let liveOwn = new Map();        // possession modifiée depuis la fiche (index → booléen)
+  let liveFilter = "all";
+  let liveShown = LIVE_LIMIT;
+  let olWorkCount = 0;            // total d'œuvres selon l'autorité Open Library
+  const authorSub = { trade: "", years: "" };
+
+  const plural = (n, one, many = one + "s") => `${n} ${n > 1 ? many : one}`;
+
+  /* Personne(s) derrière une influence : « Guin Saga — Kaoru Kurimoto » → Kaoru Kurimoto,
+     « L'Incal — Jodorowsky & Moebius » → les deux. Une entrée sans tiret n'est une personne
+     que si on la connaît (bibliothèque ou base) : « Star Wars » reste du texte. */
+  function influencePeople(inf, known) {
+    const parts = String(inf).split(/\s+[—–]\s+/);
+    if (parts.length > 1) return parts[parts.length - 1].split(/\s+(?:&|et|and)\s+/).map(s => s.trim()).filter(Boolean);
+    const who = known.find(a => AI.key(a) === AI.key(inf));
+    return who ? [who] : [];
+  }
+  const authorLink = (name, label = name, title = `Voir la fiche de ${name}`) =>
+    `<button class="am__tag am__tag--link" data-author="${esc(name)}" type="button" title="${esc(title)}">${esc(label)}</button>`;
+  const hexColor = c => /^#[0-9a-f]{3,8}$/i.test(String(c || "")) ? c : "var(--accent)";
+
+  const FORMAT_TRADE = {
+    Manga: "Mangaka", Comic: "Auteur·rice de comics",
+    Webtoon: "Webtooniste", "Graphic Novel": "Auteur·rice de romans graphiques"
+  };
+
+  /* Mots-clés Open Library utiles, traduits ; les catégories de librairie
+     (« manga volume », « Literature »…) sont ignorées. */
+  const SUBJECT_FR = {
+    "dark fantasy": "dark fantasy", "epic fantasy": "fantasy épique", "fantasy": "fantasy",
+    "sword and sorcery": "heroic fantasy", "science fiction": "science-fiction",
+    "horror": "horreur", "adventure": "aventure", "romance": "romance",
+    "superheroes": "super-héros", "humor": "humour", "mystery": "mystère", "war": "guerre",
+    "samurai": "samouraïs", "pirates": "pirates", "demons": "démons", "magic": "magie",
+    "martial arts": "arts martiaux", "sports": "sport", "crime": "polar",
+    "detective and mystery stories": "enquête", "vampires": "vampires", "zombies": "zombies",
+    "time travel": "voyage dans le temps", "robots": "robots", "dystopias": "dystopie",
+    "mythology": "mythologie", "seinen": "seinen", "shonen": "shōnen", "shōnen": "shōnen",
+    "shojo": "shōjo", "cyberpunk": "cyberpunk", "vikings": "vikings", "swordsmen": "épéistes",
+    "revenge": "vengeance", "friendship": "amitié", "history": "histoire",
+    "historical fiction": "récit historique", "post-apocalyptic": "post-apocalyptique"
+  };
+  const subjectsFr = list => [...new Set((list || [])
+    .map(s => SUBJECT_FR[String(s).toLowerCase().trim()]).filter(Boolean))];
+
+  /* « Berserk Deluxe Volume 3 » et « Berserk, Vol. 4 » → une seule entrée de série */
+  const VOL_RE = /(?:[\s,:–—-]+|\s*\()(?:vol(?:ume)?\.?|tome|t\.|book|livre|#|no\.)\s*\d+\)?.*$/i;
+  function groupWorks(works) {
+    const groups = new Map();
+    works.forEach(w => {
+      const base = String(w.t || "").replace(VOL_RE, "").trim() || w.t;
+      const k = AI.key(base);
+      const g = groups.get(k);
+      if (!g) {
+        groups.set(k, { t: base, y: w.y || 0, y2: w.y || 0, c: w.c, src: w.src,
+          n: 1, exact: !!w.exact, series: !!w.series });
+        return;
+      }
+      g.n++;
+      if (w.y) { g.y = g.y ? Math.min(g.y, w.y) : w.y; g.y2 = Math.max(g.y2, w.y); }
+      g.c = g.c || w.c;
+      g.src = g.src || w.src;
+      g.exact = g.exact || !!w.exact;
+      g.series = g.series || !!w.series;
+    });
+    return [...groups.values()];
+  }
+
+  /* ── Onglets ── */
+  function setAuthorTab(tab, focus = false) {
+    $$(".am__tab", amodal).forEach(b => {
+      const on = b.dataset.atab === tab;
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1;
+      if (on && focus) b.focus();
+    });
+    $$(".am__panel", amodal).forEach(p => { p.hidden = p.dataset.apanel !== tab; });
+  }
+  const currentAuthorTab = () => {
+    const b = $('.am__tab[aria-selected="true"]', amodal);
+    return b ? b.dataset.atab : "overview";
+  };
+
+  /* ── En-tête ── */
+  function setAuthorSub(trade, years) {
+    if (trade != null) authorSub.trade = trade;
+    if (years != null) authorSub.years = years;
+    const txt = [authorSub.trade, authorSub.years].filter(Boolean).join(" · ");
+    $("#amSub").textContent = txt;
+    $("#amSub").hidden = !txt;
+  }
+
+  function setAuthorGauge(pct) {
+    const g = $("#amGauge");
+    g.style.width = "0%";
+    $("#amKpiBib").textContent = pct == null ? "—" : pct + "%";
+    if (pct != null) setTimeout(() => { g.style.width = Math.min(100, pct) + "%"; }, 140);
+  }
+
+  /* Chiffres clés + « Dans ta collection » (repeint après un ajout ou un retrait) */
+  function paintAuthorCollection(d) {
+    $("#amKpiOwned").innerHTML = String(d.works.length) +
+      (d.favs ? `<small title="${plural(d.favs, "favori")}">${ic("heart")} ${d.favs}</small>` : "");
+    $("#amKpiOwnedL").textContent = d.works.length > 1 ? "œuvres en collection" : "œuvre en collection";
+    $("#amKpiAvg").innerHTML = d.avg ? `${d.avg.toFixed(1)}<small>/5</small>` : "—";
+
+    let note = "";
+    if (d.gauge.mode === "biblio") {
+      setAuthorGauge(d.gauge.pct);
+      note = `${plural(d.gauge.owned, "œuvre")} sur ${d.gauge.total} de sa bibliographie majeure.`;
+    } else if (olWorkCount) {
+      const owned = d.works.length;
+      setAuthorGauge(owned ? Math.max(1, Math.round((owned / olWorkCount) * 100)) : 0);
+      note = `D'après Open Library : ${plural(owned, "œuvre")} en collection sur ${olWorkCount} référencées.`;
+    } else {
+      setAuthorGauge(null);
+      note = d.works.length ? `${d.gauge.pct} % de ses œuvres en collection sont terminées.` : "";
+    }
+    const noteEl = $("#amGaugeNote");
+    noteEl.textContent = note;
+    noteEl.hidden = !note;
+    $("#amCollSec").hidden = !d.works.length;
+
+    $("#amWorks").innerHTML = d.works.length
+      ? d.works.map(w => {
+          const it = items.find(x => x.id === w.id);
+          const p = w.volumes ? Math.round((w.read / w.volumes) * 100) : 0;
+          return `
+        <li class="am__work">
+          <span class="am__work-sw" style="--c:${hexColor(it && it.color)}"></span>
+          <div class="am__work-b">
+            <span class="am__work-t">${esc(w.title)}</span>
+            <span class="am__work-r">${esc(w.role)} · ${esc(w.year)}</span>
+          </div>
+          <div class="am__work-p">
+            <div class="progress"><i style="width:${p}%"></i></div>
+            <small>${esc(w.read)}/${esc(w.volumes)} tomes</small>
+          </div>
+          <span class="status" data-s="${esc(w.status)}">${esc(w.status)}</span>
+          <button class="am__work-open" data-open="${w.id}" type="button" title="Ouvrir la fiche"
+                  aria-label="Ouvrir la fiche de ${esc(w.title)}">${ic("external")}</button>
+        </li>`;
+        }).join("")
+      : "";
+  }
+
+  function renderAuthorThemes(themes, style) {
+    $("#amTags").innerHTML = themes.map(t => `<span class="am__tag">${esc(t)}</span>`).join("");
+    $("#amTags").hidden = !themes.length;
+    const st = $("#amStyle");
+    st.textContent = style || "";
+    st.hidden = !style;
+    $("#amThemesSec").hidden = !themes.length && !style;
+  }
+
+  function renderAuthorDuos(list) {
+    $("#amDuos").innerHTML = list.map(x =>
+      `<div class="am__duo"><b>${esc(x.with)}</b><span>${esc(x.note)}</span></div>`).join("");
+    $("#amDuoSec").hidden = !list.length;
+    const empty = $("#amSimSec").hidden && $("#amDuoSec").hidden;
+    $("#amTab-network").hidden = empty;
+    $("#amNetEmpty").hidden = !empty;
+    if (empty && currentAuthorTab() === "network") setAuthorTab("overview");
+  }
 
   function openAuthor(name) {
     const d = AI.author(name, items);
     lastAuthor = d;
+    olWorkCount = 0;
+    const mine = items.filter(i => i.author === name);
 
+    /* En-tête : identité, rôles, chiffres clés */
     $("#amAva").textContent = name.split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
     $("#amName").textContent = d.name;
-    $("#amRoles").innerHTML = d.roles.map(r => `<span class="am__role">${esc(r)}</span>`).join("") +
-      (d.favs ? `<span class="am__role">${ic("heart")} ${d.favs} favori${d.favs > 1 ? "s" : ""}</span>` : "") +
-      (d.avg ? `<span class="am__role">${ic("star")} ${d.avg.toFixed(1)}/5 dans ta collection</span>` : "");
+    const trade = mine.map(i => FORMAT_TRADE[i.format]).find(Boolean) || "";
+    setAuthorSub(trade, "");
+    $("#amRoles").innerHTML = d.roles.map(r => `<span class="am__role">${esc(r)}</span>`).join("");
+    paintAuthorCollection(d);
 
+    /* Aperçu */
     $("#amBio").textContent = d.bio;
-    $("#amTags").innerHTML = d.themes.length
-      ? d.themes.map(t => `<span class="am__tag">${esc(t)}</span>`).join("")
-      : `<span class="am__tag">—</span>`;
-    const st = $("#amStyle");
-    st.textContent = d.style || "";
-    st.hidden = !d.style;
+    $("#amBioSrc").hidden = true;
+    $("#amBioSrc").innerHTML = "";
+    renderAuthorThemes(d.themes, d.style);
 
-    /* Jauge de bibliographie */
-    const g = $("#amGauge");
-    g.style.width = "0%";
-    $("#amGaugeVal").textContent = d.gauge.pct + "%";
-    $("#amGaugeNote").textContent = d.gauge.mode === "biblio"
-      ? `Tu possèdes ${d.gauge.pct}% de la bibliographie majeure de ${d.name} — ` +
-        `${d.gauge.owned} œuvre${d.gauge.owned > 1 ? "s" : ""} sur ${d.gauge.total} repérée${d.gauge.total > 1 ? "s" : ""} dans ta collection.`
-      : `Bibliographie complète non documentée pour l'instant — ${d.gauge.owned} œuvre(s) en main, ` +
-        `${d.gauge.pct}% terminée(s).`;
-    setTimeout(() => { g.style.width = d.gauge.pct + "%"; }, 140);
+    const known = [...new Set([...items.map(i => i.author), ...Object.keys(AI.AUTHORS || {})])]
+      .filter(a => a && a !== name);
+    $("#amInfl").innerHTML = d.influences.map(inf => {
+      const people = influencePeople(inf, known).filter(p => AI.key(p) !== AI.key(name));
+      if (!people.length) return `<span class="am__tag">${esc(inf)}</span>`;
+      if (people.length === 1) return authorLink(people[0], inf);
+      return people.map(p => authorLink(p)).join("");
+    }).join("");
+    $("#amInflSec").hidden = !d.influences.length;
 
-    /* Œuvres dans la collection + rôles */
-    $("#amWorks").innerHTML = d.works.length
-      ? d.works.map(w => `
-        <li>
-          <div class="am__work-b">
-            <span class="am__work-t">${esc(w.title)}</span>
-            <span class="am__work-r">${esc(w.role)}</span>
-          </div>
-          <span class="am__work-s">${w.year} · ${w.read}/${w.volumes} · ${esc(w.status)}</span>
-          <button class="am__work-open" data-open="${w.id}" type="button" title="Ouvrir la fiche">↗</button>
-        </li>`).join("")
-      : `<li><span class="am__work-s">Aucune œuvre de ${esc(d.name)} dans ta bibliothèque — pour l'instant.</span></li>`;
+    /* Réseau */
+    /* « Quimchee (I Love Yoo) » : la parenthèse reste affichée, pas dans la recherche */
+    $("#amSimilar").innerHTML = d.similar.map(s => {
+      const who = s.name.replace(/\s*\(.*\)\s*$/, "").trim() || s.name;
+      return authorLink(who, s.name, s.inLib ? `Dans ta collection — voir la fiche de ${who}` : undefined);
+    }).join("");
+    $("#amSimSec").hidden = !d.similar.length;
+    renderAuthorDuos(d.duos);
 
-    /* Auteurs proches (cliquables s'ils sont en base) */
-    $("#amSimilar").innerHTML = d.similar.length
-      ? d.similar.map(s => s.inLib
-          ? `<button class="am__tag am__tag--in" data-author="${esc(s.name)}" type="button">${esc(s.name)} ↗</button>`
-          : `<span class="am__tag">${esc(s.name)}</span>`).join("")
-      : `<span class="am__tag">Rien de comparable en base pour l'instant.</span>`;
-
-    /* Binômes célèbres */
-    $("#amDuos").innerHTML = d.duos.length
-      ? d.duos.map(x =>
-          `<span class="am__tag am__tag--duo"><span class="am__duo-n">${esc(x.with)}</span>` +
-          `<span class="am__duo-w">${esc(x.note)}</span></span>`).join("")
-      : `<span class="am__tag">Aucun binôme récurrent recensé — plutôt un solitaire.</span>`;
-
-    $("#amInfl").innerHTML = d.influences.length
-      ? d.influences.map(i => `<span>${esc(i)}</span>`).join(" &middot; ")
-      : "Influences non documentées pour l'instant.";
-
+    setAuthorTab("overview");
+    $("#amScroll").scrollTop = 0;
     amodal.classList.add("is-open");
     amodal.setAttribute("aria-hidden", "false");
     document.body.classList.add("no-scroll");
     setTimeout(() => amodal.querySelector(".modal__close").focus(), 60);
 
-    /* Enrichissement live : bio Wikipédia + bibliographie réelle */
+    /* Enrichissement live : Wikipédia, Open Library, MangaDex… */
     resetAuthorLive();
     const seq = ++liveSeq;
     AI.authorLive(name, items)
-      .then(d => { if (seq === liveSeq) paintAuthorLive(d, name); })      .catch(() => {
+      .then(live => { if (seq === liveSeq) paintAuthorLive(live, name); })
+      .catch(() => {
         if (seq !== liveSeq) return;
+        $("#amLiveWorks").innerHTML = "";
         $("#amLiveNote").innerHTML =
-          `${ic("globe")} <span>Hors ligne — la bibliographie locale documentée ci-dessus reste affichée.</span>`;
-        const retry = $("#amLiveRetry");
-        if (retry) retry.hidden = false;
+          `${ic("globe")}<span>Hors ligne : sa bibliographie en ligne est indisponible pour l’instant.</span>`;
+        $("#amLiveRetry").hidden = false;
       });
   }
 
   function resetAuthorLive() {
-    const note = $("#amLiveNote");
-    note.hidden = false;
-    note.innerHTML = `<span class="ic-wrap">${ic("search")}</span><span>Interrogation de Wikipédia, Open Library & Google Books…</span>`;
-    $("#amLiveWorks").hidden = true;
-    $("#amLiveWorks").innerHTML = "";
+    $("#amLiveNote").innerHTML = `${ic("search")}<span>Recherche de sa bibliographie en ligne…</span>`;
+    $("#amLiveWorks").innerHTML = Array.from({ length: 6 }, () =>
+      `<li class="am__wc am__wc--sk" aria-hidden="true"><span class="am__wc-cover"></span>` +
+      `<span class="am__wc-line"></span><span class="am__wc-line am__wc-line--s"></span></li>`).join("");
+    $("#amFilters").hidden = true;
+    $("#amFilters").innerHTML = "";
     $("#amLiveMore").hidden = true;
-    $("#amLiveMore").onclick = null;
     $("#amLiveRetry").hidden = true;
-    $("#amLiveRetry").onclick = null;
     $("#amLiveSrc").hidden = true;
-    $("#amBioExt").hidden = true;
-    $("#amBioExt").textContent = "";
-    $("#amSub").hidden = true;
-    $("#amSub").textContent = "";
-    $("#amSubjects").hidden = true;
-    $("#amSubjects").innerHTML = "";
-    $("#amApiGauge").hidden = true;
+    $("#amWorksCount").hidden = true;
+    $("#amTab-works").hidden = false;
     liveWorks = [];
     liveAuthor = null;
+    liveOwn = new Map();
+    liveFilter = "all";
+    liveShown = LIVE_LIMIT;
   }
 
   function paintAuthorLive(d, name) {
-    /* Bio d'introduction Wikipédia */
-    if (d.bio && d.bio.extract) {
-      const ext = $("#amBioExt");
-      ext.innerHTML = `<span class="am__src-pill">${ic("globe")} Wikipédia</span>${esc(d.bio.extract)}`;
-      ext.hidden = false;
+    const author = lastAuthor;
+
+    /* Une seule biographie : Wikipédia en priorité, repli sur le texte local */
+    const wiki = d.bio && d.bio.extract ? d.bio : null;
+    const wikiUrl = wiki ? safeImageUrl(wiki.url) : "";   // même contrôle http(s) que les images
+    const useWiki = !!wiki && (wiki.lang !== "EN" || !author || author.generated);
+    if (useWiki) $("#amBio").textContent = wiki.extract;
+    if (wikiUrl) {
+      $("#amBioSrc").innerHTML = useWiki
+        ? `Source : <a href="${esc(wikiUrl)}" target="_blank" rel="noopener">Wikipédia${wiki.lang === "EN" ? " (en anglais)" : ""} ${ic("external")}</a>`
+        : `<a href="${esc(wikiUrl)}" target="_blank" rel="noopener">Lire sa biographie complète sur Wikipédia (en anglais) ${ic("external")}</a>`;
+      $("#amBioSrc").hidden = false;
     }
 
-    const note = $("#amLiveNote");
-    if (!d.works.length) {
-      note.textContent = `Aucun titre trouvé en ligne pour ${name} — la bibliographie locale ci-dessus reste affichée.`;
-      return;
-    } else {
-      note.innerHTML = `${ic("chart")} <span>${d.total} titre${d.total > 1 ? "s" : ""} référencé${d.total > 1 ? "s" : ""} en ligne` +
-        (d.exact ? ` · ${d.exact} dans ta collection` : "") +
-        (d.series ? ` · ${d.series} de tes séries suivies` : "") + `</span>`;
-    }
-
-    const LIMIT = 15;
-    let shown = LIMIT;
-    liveWorks = d.works || [];
-    liveAuthor = name;
-    const ul = $("#amLiveWorks");
-    const more = $("#amLiveMore");
-    const row = (w, i) => {
-      const own = w.exact || inLibNow(w.t);
-      const viewSrc = safeImageUrl(w.c) || safeImageUrl(w.src);
-      const cover = viewSrc
-        ? `<img class="am__lc" src="${esc(viewSrc)}" data-view="${esc(viewSrc)}" alt="" loading="lazy" decoding="async">`
-        : `<span class="am__lc am__lc--ph" data-lc="${esc(w.t)}">${ic("book")}</span>`;
-      const view = viewSrc
-        ? `<button class="am__view" type="button" data-view="${esc(viewSrc)}" title="Agrandir l’image" aria-label="Agrandir l’image">${ic("image")}</button>`
-        : "";
-      const action = own
-        ? `<span class="am__b-own">${ic("check")} possédé</span><button class="am__remove" type="button" data-removelive="${i}" title="Retirer de la bibliothèque" aria-label="Retirer de la bibliothèque">${ic("trash")}</button>`
-        : w.series ? `<span class="am__b-ser">${ic("book")} série suivie</span>`
-        : `<span class="am__add">+ Ajouter</span>`;
-      return `
-      <li data-live="${i}"${own ? ` class="is-own"` : ` data-addlive="${i}"`} title="${esc(own ? w.t + " — déjà dans ta collection" : "Clique pour ajouter « " + w.t + " » à ta bibliothèque")}">
-        ${cover}
-        <div class="am__work-b"><span class="am__work-t">${esc(w.t)}</span></div>
-        <span class="am__work-s">${w.y || "—"}</span>
-        <div class="am__actions">${view}${action}</div>
-      </li>`;
-    };
-    const render = () => {
-      ul.innerHTML = d.works.slice(0, shown).map((w, i) => row(w, i)).join("");
-      ul.hidden = false;
-      const rest = d.works.length - shown;
-      if (rest > 0) {
-        more.hidden = false;
-        more.textContent = `Afficher les ${rest} autre${rest > 1 ? "s" : ""} titre${rest > 1 ? "s" : ""} ↓`;
-      } else if (shown > LIMIT) {
-        more.hidden = false;
-        more.textContent = "Réduire la liste ↑";
-      } else more.hidden = true;
-    };
-    render();
-    more.onclick = () => { shown = shown > LIMIT ? LIMIT : d.works.length; render(); };
-
-    /* Titres sans couverture → résolution via l'API de couvertures
-       (AniList / Google Books / Open Library — lane selon le format de l'auteur) */
-    const lane = items.some(i => i.author === name && /manga|webtoon/i.test(i.format || ""))
-      ? "Manga" : "Comic";
-    $$("[data-lc]", ul).forEach(ph => {
-      Covers.resolve({ format: lane, title: ph.dataset.lc, author: name })
-        .then(url => {
-          if (!url || !ph.parentNode) return;
-          const img = document.createElement("img");
-          img.className = "am__lc";          img.alt = ""; img.loading = "lazy"; img.decoding = "async";
-          img.dataset.view = url;
-          img.src = url;
-          ph.replaceWith(img);
-        })
-        .catch(() => {});
-    });
-
-    const src = $("#amLiveSrc");
-    src.textContent = "Sources : " + (d.src.join(" · ") || "—") +
-      (d.mdCount ? " · MangaDex (données & couvertures, crédit API)" : "") +
-      " · cache local 7 jours.";
-    src.hidden = false;
-
-    /* Portrait (Wikipédia puis photo Open Library) — les initiales restent
-       dessous en repli si l'image ne charge pas */
+    /* Portrait (Wikipédia puis Open Library), initiales en repli */
     const photo = safeImageUrl(d.photo);
     if (photo) {
       const img = document.createElement("img");
@@ -1361,55 +1436,125 @@
       $("#amAva").appendChild(img);
     }
 
-    /* Sous-titre : description Wikipédia + dates de l'autorité Open Library */
-    const sub = $("#amSub");
-    const subTxt = [
-      d.wikiDesc || "",
-      (d.ol && d.ol.date) ? `Open Library · ${d.ol.date}` : ""
-    ].filter(Boolean).join("  ·  ");
-    if (subTxt) { sub.textContent = subTxt; sub.hidden = false; }
+    /* Années de vie, sans reprendre la description (souvent en anglais) */
+    const years = String((d.ol && d.ol.date) || d.wikiDesc || "").match(/\b(?:1[89]\d\d|20\d\d)\b/g) || [];
+    setAuthorSub(null, years.length >= 2 ? `${years[0]} – ${years[1]}` : "");
 
-    /* Mots-clés réels : subjects les plus fréquents du corpus */
-    if (d.subjects && d.subjects.length) {
-      $("#amSubjects").innerHTML = d.subjects
-        .map(s => `<span class="am__tag am__tag--api">${esc(s)}</span>`).join("");
-      $("#amSubjects").hidden = false;
+    /* Thèmes locaux + mots-clés Open Library traduits, sans doublon */
+    if (author) {
+      const seen = new Set(author.themes.map(t => AI.key(t)));
+      const extra = subjectsFr(d.subjects)
+        .filter(t => { const k = AI.key(t); if (seen.has(k)) return false; seen.add(k); return true; })
+        .slice(0, 4);
+      renderAuthorThemes([...author.themes, ...extra], author.style);
     }
 
-    /* Jauge réelle : total d'œuvres de l'autorité Open Library */
-    if (d.workCount) {
-      const ownedR = d.exact;
-      const pctR = ownedR ? Math.max(1, Math.round((ownedR / d.workCount) * 100)) : 0;
-      const g2 = $("#amApiGauge");
-      g2.innerHTML = `${ic("chart")} <span>Autorité Open Library : ${d.workCount} œuvres référencées — tu en possèdes ${ownedR} (~${pctR}%).</span>`;
-      g2.hidden = false;
-
-      /* Auteur sans base locale (jauge en mode « progression ») :
-         la jauge principale passe sur le réel Open Library */
-      if (lastAuthor && lastAuthor.gauge.mode !== "biblio") {
-        const g = $("#amGauge");
-        $("#amGaugeVal").textContent = pctR + "%";
-        g.style.width = "0%";
-        setTimeout(() => { g.style.width = pctR + "%"; }, 140);
-        $("#amGaugeNote").textContent =
-          `Bibliographie réelle via Open Library : ${d.workCount} œuvres de ${lastAuthor.name} — ` +
-          `${ownedR} en main dans ta collection.`;
-      }
+    /* Jauge unique : Open Library prend le relais sans bibliographie locale */
+    if (d.workCount && author && author.gauge.mode !== "biblio") {
+      olWorkCount = d.workCount;
+      paintAuthorCollection(author);
     }
 
-    /* Binômes réels (co-auteurs Open Library) — sans doublon avec la base */
+    /* Binômes : base locale + co-auteurs Open Library, sans doublon */
     const nk = s => (s || "").toLowerCase().normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-    const kbD = (lastAuthor && lastAuthor.duos) || [];
-    const apiD = (d.binomes || []).filter(b => !kbD.some(x => nk(x.with) === nk(b.with)));
-    if (apiD.length) {
-      const box = $("#amDuos");
-      const emptyKb = /Aucun binôme/.test(box.textContent);
-      box.innerHTML = (emptyKb ? "" : box.innerHTML) + apiD.map(b =>
-        `<span class="am__tag am__tag--duo"><span class="am__duo-n">${esc(b.with)}</span>` +
-        `<span class="am__duo-w">${b.n} œuvre${b.n > 1 ? "s" : ""} commune${b.n > 1 ? "s" : ""} · API</span></span>`
-      ).join("");
+    const kbD = (author && author.duos) || [];
+    const apiD = (d.binomes || [])
+      .filter(b => !kbD.some(x => nk(x.with) === nk(b.with)))
+      .map(b => ({ with: b.with, note: plural(b.n, "œuvre commune", "œuvres communes") }));
+    if (apiD.length) renderAuthorDuos([...kbD, ...apiD]);
+
+    /* Œuvres */
+    if (!d.works.length) {
+      $("#amLiveWorks").innerHTML = "";
+      $("#amLiveNote").innerHTML = `${ic("search")}<span>Aucun titre trouvé en ligne pour ${esc(name)}.</span>`;
+      $("#amTab-works").hidden = true;
+      if (currentAuthorTab() === "works") setAuthorTab("overview");
+      return;
     }
+    liveWorks = groupWorks(d.works);
+    liveAuthor = name;
+    $("#amWorksCount").textContent = liveWorks.length;
+    $("#amWorksCount").hidden = false;
+    $("#amLiveNote").innerHTML = `${ic("globe")}<span>${plural(d.total, "titre référencé", "titres référencés")} en ligne` +
+      (liveWorks.length < d.works.length ? ", volumes regroupés par série" : "") + `</span>`;
+    renderLiveWorks();
+
+    const sources = [...new Set((d.src || []).filter(Boolean).concat(d.mdCount ? ["MangaDex"] : []))];
+    const src = $("#amLiveSrc");
+    src.textContent = `Sources : ${sources.join(" · ") || "—"} · mis en cache 7 jours.`;
+    src.hidden = false;
+  }
+
+  /* ── Grille des œuvres en ligne ── */
+  const liveIsOwn = (w, i) => liveOwn.has(i) ? liveOwn.get(i) : (w.exact || inLibNow(w.t));
+  const liveState = (w, i) => liveIsOwn(w, i) ? "own" : w.series ? "series" : "new";
+
+  function liveCard(w, i) {
+    const state = liveState(w, i);
+    const img = safeImageUrl(w.c) || safeImageUrl(w.src);
+    const years = w.y ? (w.y2 && w.y2 !== w.y ? `${w.y}–${w.y2}` : String(w.y)) : "—";
+    const cover = img
+      ? `<button class="am__wc-cover" type="button" data-view="${esc(img)}" aria-label="Agrandir la couverture de ${esc(w.t)}"><img src="${esc(img)}" alt="" loading="lazy" decoding="async"></button>`
+      : `<span class="am__wc-cover" data-lc="${esc(w.t)}"><span class="am__wc-ph">${esc(w.t)}</span></span>`;
+    const badge = state === "own"
+      ? `<span class="am__wc-state am__wc-state--own" role="img" aria-label="Possédé" title="Possédé">${ic("check")}</span>`
+      : state === "series"
+        ? `<span class="am__wc-state am__wc-state--series" role="img" aria-label="Série suivie" title="Série suivie">${ic("book")}</span>` : "";
+    const action = state === "own"
+      ? `<button class="am__wc-btn am__wc-btn--rm" type="button" data-removelive="${i}" title="Retirer de la bibliothèque" aria-label="Retirer ${esc(w.t)} de la bibliothèque">${ic("trash")}</button>`
+      : state === "series"
+        ? `<span class="am__wc-tag">Suivie</span>`
+        : `<button class="am__wc-btn am__wc-btn--add" type="button" data-addlive="${i}" aria-label="Ajouter ${esc(w.t)} à la bibliothèque">${ic("plus")}<span>Ajouter</span></button>`;
+    return `
+      <li class="am__wc is-${state}" data-live="${i}">
+        <div class="am__wc-media">${cover}${w.n > 1 ? `<span class="am__wc-vol">${w.n} vol.</span>` : ""}${badge}</div>
+        <p class="am__wc-t" title="${esc(w.t)}">${esc(w.t)}</p>
+        <div class="am__wc-meta"><span>${years}</span>${action}</div>
+      </li>`;
+  }
+
+  function renderLiveWorks() {
+    const counts = { all: liveWorks.length, new: 0, own: 0 };
+    liveWorks.forEach((w, i) => { counts[liveState(w, i) === "new" ? "new" : "own"]++; });
+    const filters = $("#amFilters");
+    filters.innerHTML = [["all", "Tout"], ["new", "À découvrir"], ["own", "Possédés"]]
+      .map(([k, label]) => `<button class="am__filter${liveFilter === k ? " is-active" : ""}" type="button" ` +
+        `data-afilter="${k}" aria-pressed="${liveFilter === k}">${label} <b>${counts[k]}</b></button>`).join("");
+    filters.hidden = false;
+
+    const list = liveWorks.map((w, i) => [w, i]).filter(([w, i]) =>
+      liveFilter === "all" || (liveFilter === "new") === (liveState(w, i) === "new"));
+    const ul = $("#amLiveWorks");
+    ul.innerHTML = list.slice(0, liveShown).map(([w, i]) => liveCard(w, i)).join("") ||
+      `<li class="am__empty">${liveFilter === "new"
+        ? "Tu possèdes déjà tout ce qui est référencé. Chapeau !"
+        : "Rien de cet auteur dans ta collection pour l’instant."}</li>`;
+
+    const rest = list.length - liveShown;
+    const more = $("#amLiveMore");
+    more.hidden = rest <= 0 && liveShown <= LIVE_LIMIT;
+    more.textContent = rest > 0 ? `Afficher ${plural(rest, "autre titre", "autres titres")}` : "Réduire la liste";
+    resolveLiveCovers(ul);
+  }
+
+  /* Titres sans couverture → API de couvertures (lane selon le format de l'auteur) */
+  function resolveLiveCovers(root) {
+    const lane = items.some(i => i.author === liveAuthor && /manga|webtoon/i.test(i.format || ""))
+      ? "Manga" : "Comic";
+    $$("[data-lc]", root).forEach(ph => {
+      Covers.resolve({ format: lane, title: ph.dataset.lc, author: liveAuthor })
+        .then(url => {
+          const safe = safeImageUrl(url);
+          if (!safe || !ph.isConnected) return;
+          const li = ph.closest("[data-live]");
+          const w = li && liveWorks[+li.dataset.live];
+          if (w) w.c = safe;
+          ph.outerHTML = `<button class="am__wc-cover" type="button" data-view="${esc(safe)}" ` +
+            `aria-label="Agrandir la couverture de ${esc(ph.dataset.lc)}"><img src="${esc(safe)}" alt="" loading="lazy" decoding="async"></button>`;
+        })
+        .catch(() => {});
+    });
   }
 
   function closeAuthor() {
@@ -1421,44 +1566,30 @@
     return true;
   }
 
-  /* ── Ajout direct depuis la bibliographie live ── */
+  function refreshAuthorCollection() {
+    if (!lastAuthor || !amodal.classList.contains("is-open")) return;
+    lastAuthor = AI.author(lastAuthor.name, items);
+    paintAuthorCollection(lastAuthor);
+  }
+
+  /* ── Ajout / retrait direct depuis la bibliographie live ── */
   const inLibNow = title => items.some(i => AI.key(i.title) === AI.key(title));
 
-  function markOwn(rowEl) {
-    rowEl.classList.add("is-own");
-    rowEl.removeAttribute("data-addlive");
-    const actions = rowEl.querySelector(".am__actions");
-    if (actions) {
-      const view = actions.querySelector("[data-view]");
-      actions.innerHTML = (view ? view.outerHTML : "") +
-        `<span class="am__b-own">${ic("check")} possédé</span>` +
-        `<button class="am__remove" type="button" data-removelive="${esc(rowEl.dataset.live)}" title="Retirer de la bibliothèque" aria-label="Retirer de la bibliothèque">${ic("trash")}</button>`;
-    } else {
-      const chip = rowEl.querySelector(".am__add");
-      if (chip) chip.outerHTML = `<span class="am__b-own">${ic("check")} possédé</span>`;
-    }
+  function focusLiveAction(i) {
+    const btn = $(`[data-live="${i}"] .am__wc-btn`, $("#amLiveWorks"));
+    if (btn) btn.focus();
   }
 
-  function markUnowned(rowEl) {
-    rowEl.classList.remove("is-own");
-    rowEl.dataset.addlive = rowEl.dataset.live;
-    rowEl.title = "Clique pour ajouter cet ouvrage à ta bibliothèque";
-    const actions = rowEl.querySelector(".am__actions");
-    if (actions) {
-      const view = actions.querySelector("[data-view]");
-      actions.innerHTML = (view ? view.outerHTML : "") + `<span class="am__add">+ Ajouter</span>`;
-    }
-  }
-
-  async function removeLiveWork(rowEl) {
-    const w = liveWorks[+rowEl.dataset.live];
+  async function removeLiveWork(i) {
+    const w = liveWorks[i];
     if (!w) return;
     const authorName = liveAuthor || (lastAuthor && lastAuthor.name) || "";
-    let index = items.findIndex(i => AI.key(i.title) === AI.key(w.t) && i.author === authorName);
-    if (index < 0) index = items.findIndex(i => AI.key(i.title) === AI.key(w.t));
+    let index = items.findIndex(x => AI.key(x.title) === AI.key(w.t) && x.author === authorName);
+    if (index < 0) index = items.findIndex(x => AI.key(x.title) === AI.key(w.t));
     if (index < 0) {
       showToast(ic("alert") + " Cet ouvrage n’est plus dans la bibliothèque.");
-      markUnowned(rowEl);
+      liveOwn.set(i, false);
+      renderLiveWorks();
       return;
     }
     const item = items[index];
@@ -1470,8 +1601,11 @@
       showToast(ic("alert") + " Retrait impossible : stockage local indisponible.");
       return;
     }
-    markUnowned(rowEl);
+    liveOwn.set(i, false);
     refreshAll(); buildHeroStack();
+    refreshAuthorCollection();
+    renderLiveWorks();
+    focusLiveAction(i);
     showToast(ic("check") + ` « ${esc(item.title)} » retiré de la bibliothèque.`);
   }
 
@@ -1483,7 +1617,7 @@
       id: Math.max(0, ...items.map(x => +x.id || 0)) + 1,
       title: w.t, author: authorName, format: lane,
       year: (y >= 1900 && y <= 2100) ? y : new Date().getFullYear(),
-      volumes: 1, read: 0, rating: 0, status: "Planifié",
+      volumes: w.n > 1 ? w.n : 1, read: 0, rating: 0, status: "Planifié",
       color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
       desc: `Ajouté depuis la bibliographie en ligne de ${authorName}.`,
       fav: false, review: "",
@@ -1501,7 +1635,9 @@
 
   function initAuthor() {
     $("#amLiveRetry").addEventListener("click", () => {
-      if (lastAuthor) openAuthor(lastAuthor.name);
+      if (!lastAuthor) return;
+      openAuthor(lastAuthor.name);
+      setAuthorTab("works");
     });
     amodal.addEventListener("click", e => {
       if (e.target.hasAttribute("data-aclose")) closeAuthor();
@@ -1514,44 +1650,69 @@
       openAuthor(b.dataset.author);
     });
 
-    /* Œuvre dans la bibliographie → fiche livre (on referme l'auteur) */
+    /* Onglets : clic + flèches du clavier (motif ARIA « tabs ») */
+    const tabs = $(".am__tabs", amodal);
+    tabs.addEventListener("click", e => {
+      const b = e.target.closest("[data-atab]");
+      if (b) setAuthorTab(b.dataset.atab);
+    });
+    tabs.addEventListener("keydown", e => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+      const list = $$(".am__tab", tabs).filter(b => !b.hidden);
+      const cur = list.indexOf(document.activeElement);
+      if (cur < 0) return;
+      e.preventDefault();
+      const next = e.key === "Home" ? 0 : e.key === "End" ? list.length - 1
+        : (cur + (e.key === "ArrowRight" ? 1 : -1) + list.length) % list.length;
+      setAuthorTab(list[next].dataset.atab, true);
+    });
+
+    /* Œuvre de la collection → fiche livre (on referme l'auteur) */
     $("#amWorks").addEventListener("click", e => {
       const b = e.target.closest("[data-open]"); if (!b) return;
       closeAuthor();
       openModal(+b.dataset.open);
     });
 
-    /* Bibliographie LIVE : image → agrandissement, poubelle → retrait,
-       titre → ajout à la bibliothèque */
+    $("#amFilters").addEventListener("click", e => {
+      const b = e.target.closest("[data-afilter]"); if (!b) return;
+      liveFilter = b.dataset.afilter;
+      liveShown = LIVE_LIMIT;
+      renderLiveWorks();
+    });
+    $("#amLiveMore").addEventListener("click", () => {
+      liveShown = liveShown > LIVE_LIMIT ? LIVE_LIMIT : liveWorks.length;
+      renderLiveWorks();
+    });
+
+    /* Grille live : couverture → agrandissement, + → ajout, corbeille → retrait */
     $("#amLiveWorks").addEventListener("click", e => {
       const view = e.target.closest("[data-view]");
       if (view) {
-        e.preventDefault(); e.stopPropagation();
-        const rowEl = view.closest("[data-live]");
-        const title = rowEl && rowEl.querySelector(".am__work-t");
-        openImageView(view.dataset.view, title ? title.textContent : "");
+        const li = view.closest("[data-live]");
+        const w = li && liveWorks[+li.dataset.live];
+        openImageView(view.dataset.view, w ? w.t : "");
         return;
       }
       const remove = e.target.closest("[data-removelive]");
-      if (remove) {
-        e.preventDefault(); e.stopPropagation();
-        removeLiveWork(remove.closest("[data-live]"));
-        return;
-      }
-      const rowEl = e.target.closest("[data-addlive]"); if (!rowEl) return;
-      const w = liveWorks[+rowEl.dataset.addlive]; if (!w) return;
+      if (remove) { removeLiveWork(+remove.dataset.removelive); return; }
+
+      const add = e.target.closest("[data-addlive]"); if (!add) return;
+      const i = +add.dataset.addlive;
+      const w = liveWorks[i]; if (!w) return;
       if (inLibNow(w.t)) {
-        markOwn(rowEl);
+        liveOwn.set(i, true);
+        renderLiveWorks();
+        focusLiveAction(i);
         showToast(ic("check") + ` « ${esc(w.t)} » est déjà dans ta bibliothèque.`);
-        return;
-      }
-      if (w.series) {
-        showToast(ic("book") + ` « ${esc(w.t)} » fait partie d'une série déjà suivie.`);
         return;
       }
       const added = addLiveWork(w, liveAuthor || (lastAuthor && lastAuthor.name) || "");
       if (!added) return;
-      markOwn(rowEl);
+      liveOwn.set(i, true);
+      refreshAuthorCollection();
+      renderLiveWorks();
+      focusLiveAction(i);
       showToast(ic("check") + ` « ${esc(w.t)} » ajouté à la bibliothèque !`);
     });
   }
