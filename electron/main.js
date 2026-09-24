@@ -11,6 +11,9 @@ const { pathToFileURL } = require("url");
 
 /* Export PDF natif : boîte de sauvegarde + printToPDF sur une fenêtre éphémère */
 ipcMain.handle("iv:save-pdf", async (event, html, defaultName) => {
+  if (typeof html !== "string" || html.length > 2_000_000) {
+    return { ok: false, error: "Document d’exportation invalide ou trop volumineux." };
+  }
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: "Enregistrer le PDF",
@@ -20,9 +23,23 @@ ipcMain.handle("iv:save-pdf", async (event, html, defaultName) => {
   });
   if (canceled || !filePath) return { canceled: true };
 
-  const tmp = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const tmp = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      javascript: false
+    }
+  });
+  tmp.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(String(html));
+  tmp.webContents.on("will-navigate", (e, url) => {
+    if (url !== dataUrl) e.preventDefault();
+  });
   try {
-    await tmp.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(String(html)));
+    await tmp.loadURL(dataUrl);
     const buf = await tmp.webContents.printToPDF({
       printBackground: true,
       preferCSSPageSize: true   // @page A4 + marges de la coquille d'export

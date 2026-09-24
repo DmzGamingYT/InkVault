@@ -52,11 +52,11 @@ Un clic sur **🎨** dans la barre du haut — le thème s'applique partout et s
 - **✦ Ordres de lecture** : fils conducteurs pas-à-pas (Hickman, Marvel Cosmic, DC Crises…), croisés avec ta bibliothèque, copiables.
 - **✦ Insights & Profil de lecture** : résumés mensuels générés localement, penchants, suggestion de relecture.
 - **✦ Smart Buy** : optimiseur de panier sous budget (knapsack) — « J'ai 50 € » → la meilleure combinaison de tomes.
-- **🌐 Fiches Auteurs 360°** : rôles par œuvre (scénario/dessin), style & thèmes, jauge de bibliographie, auteurs similaires, binômes célèbres — **bio Wikipédia et bibliographie complète enrichies en direct** (Open Library + Google Books, cache 7 jours, repli hors ligne sur la base locale).
+- **🌐 Fiches Auteurs 360°** : rôles par œuvre (scénario/dessin), style & thèmes, jauge de bibliographie, auteurs similaires, binômes célèbres — **bio Wikipédia et bibliographie complète enrichies en direct** (Open Library + Google Books + MangaDex pour les mangas, cache 7 jours, repli hors ligne sur la base locale).
 - **🖼 Fiche livre immersive** : galerie de visuels illustratifs, variantes d'édition persistées, **double timeline** publication vs chronologie d'univers.
 - **🛒 Où l'acheter ?** : liens multi-enseignes (Fnac, Amazon, BDFugue, Place des Libraires, Canal BD… + occasion Vinted, Rakuten, momox) avec recherche pré-remplie, prêts pour l'affiliation.
 - **⤓ Export** : bibliothèque **et** ordres de lecture en **Markdown** ou **PDF** (dialogue natif sur desktop, boîte d'impression en ligne) + sauvegarde JSON complète.
-- **➕ Ajout au clic** : dans la bibliographie live d'un auteur, un clic sur un titre l'ajoute à ta collection (couverture résolue automatiquement).
+- **➕ Ajout au clic** : dans la bibliographie live d'un auteur, un clic sur un titre l'ajoute à ta collection ; un ouvrage ajouté peut être retiré directement avec la poubelle. Cliquer sur une couverture l'ouvre dans une visionneuse agrandie.
 - **🎨 6 thèmes** : Manga Ink, Comics Vintage, Gotham, Ligne Claire, Batman, One Piece.
 
 ## 📦 Installation — Linux
@@ -99,7 +99,7 @@ git push --follow-tags    # → CI build & publie la release (~5 min)
 | `index.html` / `styles.css` | Interface + design system (thèmes via `data-skin`) |
 | `data.js` | Bibliothèque de démonstration |
 | `store.js` | Persistance localStorage |
-| `ai.js` | **Moteur d'IA local** (vibe, reading orders, insights, smart buy, auteurs, timelines) + **enrichissements live** (Wikipédia, Open Library, Google Books, cache 7 j) |
+| `ai.js` | **Moteur d'IA local** (vibe, reading orders, insights, smart buy, auteurs, timelines) + **enrichissements live** (Wikipédia, Open Library, Google Books, MangaDex, cache 7 j) |
 | `covers.js` | Résolution des couvertures (AniList / Jikan / Google Books / Open Library) |
 | `app.js` | Câblage de l'interface |
 | `electron/` | Coquille desktop (instance unique, export PDF natif via `preload.js`, confirm système, auto-update) |
@@ -108,7 +108,7 @@ git push --follow-tags    # → CI build & publie la release (~5 min)
 
 ## 🔒 Confidentialité
 
-La bibliothèque, les notes et les calculs de recommandation restent en local. Une connexion est utilisée pour la recherche de couvertures, l'enrichissement des fiches auteurs, les polices Google au chargement et la recherche de mises à jour sur GitHub (AppImage). Ces services peuvent recevoir les titres/auteurs recherchés et des informations réseau comme l'adresse IP. Les fiches auteurs disposent d'un cache local de 7 jours et d'un repli hors ligne.
+La bibliothèque, les notes et les calculs de recommandation restent en local. Une connexion est utilisée pour la recherche de couvertures, l'enrichissement des fiches auteurs, les polices Google au chargement et la recherche de mises à jour sur GitHub (AppImage). Ces services peuvent recevoir les titres/auteurs recherchés et des informations réseau comme l'adresse IP. Les fiches auteurs disposent d'un cache local de 7 jours et d'un repli hors ligne. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas ; MangaDex est crédité dans l'interface lorsque cette source est active.
 
 ## 📝 Licence
 

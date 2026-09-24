@@ -1602,6 +1602,7 @@ const AI = (() => {
 
   /* ══════════ 12. ENRICHISSEMENT LIVE — VRAIES API ══════════
      Wikipédia (bio) · Open Library (bibliographie) · Google Books (secours)
+     · MangaDex (mangas et couvertures)
      — best-effort : timeout 8 s, cache localStorage 7 jours,
        retour silencieux sur la base locale si hors ligne. */
 
@@ -1612,7 +1613,7 @@ const AI = (() => {
     const nrm = s => (s || "").toString().toLowerCase()
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]/g, "");
-    const ck = n => "iv-live-v2-" + nrm(n);
+    const ck = n => "iv-live-v3-" + nrm(n);
 
     async function getJSON(url, ms = 8000) {
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -1755,6 +1756,47 @@ const AI = (() => {
       } catch (e) { return []; }
     }
 
+    /* MangaDex : source publique gratuite, sans clé, pour les auteurs manga.
+       L'API renvoie d'abord l'auteur puis les mangas liés à son profil ;
+       covers est développé directement dans la réponse quand il est présent. */
+    const mdCache = new Map();
+    async function mdWorks(name) {
+      const cacheKey = nrm(name);
+      if (mdCache.has(cacheKey)) return mdCache.get(cacheKey);
+      try {
+        const authors = await getJSON("https://api.mangadex.org/author?name=" +
+          encodeURIComponent(name) + "&limit=5");
+        const profiles = (authors && authors.data) || [];
+        const profile = profiles.find(a => sml(name, a.attributes && a.attributes.name) >= 30) || profiles[0];
+        const ids = ((profile && profile.relationships) || [])
+          .filter(r => r.type === "manga" && r.id).map(r => r.id).slice(0, 50);
+        if (!ids.length) { mdCache.set(cacheKey, []); return []; }
+
+        const query = ids.map(id => "ids[]=" + encodeURIComponent(id)).join("&");
+        const data = await getJSON("https://api.mangadex.org/manga?" + query +
+          "&limit=50&includes[]=cover_art", 8000);
+        const works = ((data && data.data) || []).map(manga => {
+          const attrs = manga.attributes || {};
+          const titles = Array.isArray(attrs.altTitles) ? attrs.altTitles : [];
+          const localized = titles.find(t => t && t.fr) || titles.find(t => t && t.en) || {};
+          const title = localized.fr || localized.en ||
+            Object.values(attrs.title || {}).find(v => /[a-z]/i.test(String(v))) || "";
+          const cover = (manga.relationships || []).find(r => r.type === "cover_art");
+          const fileName = cover && cover.attributes && cover.attributes.fileName;
+          const src = manga.id && fileName
+            ? "https://uploads.mangadex.org/covers/" + encodeURIComponent(manga.id) + "/" +
+              encodeURIComponent(fileName) + ".512.jpg"
+            : "";
+          return { t: title, y: attrs.year || 0, c: src, src, source: "MangaDex" };
+        }).filter(w => w.t && /[a-z]/i.test(w.t));
+        mdCache.set(cacheKey, works);
+        return works;
+      } catch (e) {
+        mdCache.set(cacheKey, []);
+        return [];
+      }
+    }
+
     function withOwnership(data, name, items) {
       const libNorms = (items || []).filter(i => i.author === name).map(i => nrm(i.title));
       const works = data.works.map(w => {
@@ -1775,21 +1817,21 @@ const AI = (() => {
       if (cached && cached.data && Date.now() - cached.at < TTL)
         return withOwnership(cached.data, name, items);
 
-      const [wiki, auth, search, gb] = await Promise.all([
-        wikiBio(name), olAuthority(name), olWorks(name), gbWorks(name)
+      const [wiki, auth, search, gb, md] = await Promise.all([
+        wikiBio(name), olAuthority(name), olWorks(name), gbWorks(name), mdWorks(name)
       ]);
       const kw = auth && auth.key ? await olKeyWorks(auth.key) : null;
 
       /* Fusion + dédup (une entrée couverture primée) — titres sans lettres
          latines (kana/kanji seuls) écartés : illisibles dans l'UI */
       const map = new Map();
-      [...search.works, ...gb, ...((kw && kw.works) || [])].forEach(w => {
+      [...search.works, ...gb, ...((kw && kw.works) || []), ...md].forEach(w => {
         const k = nrm(w.t);
         if (!k || !/[a-z]/.test(k) || w.t.length < 2) return;
         if (/duplicate\s+of|^record\s|\(import\b/i.test(w.t)) return;   // orphelins Open Library
         const prev = map.get(k);
         if (!prev) map.set(k, w);
-        else if (!prev.c && w.c) map.set(k, { t: w.t, y: prev.y || w.y, c: w.c });
+        else if (!prev.c && w.c) map.set(k, { ...prev, c: w.c, src: prev.src || w.src, source: prev.source || w.source });
       });
 
       const works = [...map.values()]
@@ -1824,8 +1866,10 @@ const AI = (() => {
         src: [
           (search.works.length || auth) ? "Open Library" : "",
           gb.length ? "Google Books" : "",
+          md.length ? "MangaDex" : "",
           wiki ? "Wikipédia" : ""
-        ].filter(Boolean)
+        ].filter(Boolean),
+        mdCount: md.length
       };
 
       if (LS) { try { LS.setItem(ck(name), JSON.stringify({ at: Date.now(), data })); } catch (e) {} }

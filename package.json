@@ -14,6 +14,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.js",
+    "check": "node --check app.js && node --check ai.js && node --check covers.js && node --check store.js && node --check electron/main.js && node --check electron/preload.js",
     "dist:linux": "electron-builder --linux AppImage tar.gz --publish never && ./scripts/make-deb.sh x64",
     "dist:linux:arm64": "electron-builder --linux AppImage tar.gz --arm64 --publish never && ./scripts/make-deb.sh arm64"
   },

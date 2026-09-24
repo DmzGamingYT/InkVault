@@ -97,11 +97,13 @@ const Store = (() => {
         !optional(state, "activity", activity => object(activity) &&
           Object.entries(activity).every(([date, count]) => day(date) && nonNegative(count))) ||
         !optional(state, "prefs", prefs => object(prefs) &&
-          optional(prefs, "filter", oneOf("all", "__fav", "Manga", "Comic", "Webtoon", "Graphic Novel")) &&
+          optional(prefs, "filter", oneOf("all", "__fav", "__current", "Manga", "Comic", "Webtoon", "Graphic Novel")) &&
           optional(prefs, "sort", oneOf("title", "rating", "year", "progress", "fav", "added")) &&
           optional(prefs, "view", oneOf("grid", "list")) &&
           optional(prefs, "mode", oneOf("text", "vibe")) &&
           optional(prefs, "skin", oneOf("ink", "vintage", "gotham", "batman", "onepiece", "claire")) &&
+          optional(prefs, "status", text) &&
+          optional(prefs, "author", text) &&
           optional(prefs, "sb", n => typeof n === "number" && Number.isFinite(n) && n >= 0))) return false;
 
     const ids = new Set();
@@ -133,11 +135,25 @@ const Store = (() => {
       activity: Object.assign(Object.create(null), state.activity || {}),
       goal: state.goal === undefined ? 40 : state.goal,
       prefs: Object.assign({ filter: "all", sort: "title", view: "grid" }, state.prefs || {}),
-      items: state.items.map(it => Object.assign({
-        format: "Comic", year: new Date().getFullYear(), volumes: 1, read: 0,
-        rating: 0, status: "Planifié", desc: "", fav: false, review: "",
-        addedAt: today, finishedAt: null
-      }, it, { color: color(it.color) ? it.color : COLOR }))
+      items: state.items.map(it => {
+        const item = Object.assign({
+          format: "Comic", year: new Date().getFullYear(), volumes: 1, read: 0,
+          rating: 0, status: "Planifié", desc: "", fav: false, review: "",
+          addedAt: today, finishedAt: null
+        }, it, { color: color(it.color) ? it.color : COLOR });
+        item.read = Math.min(item.volumes, Math.max(0, item.read || 0));
+        if (item.read >= item.volumes) {
+          item.status = "Terminé";
+          item.finishedAt = item.finishedAt || item.addedAt;
+        } else if (item.read > 0) {
+          item.status = "En cours";
+          item.finishedAt = null;
+        } else {
+          item.status = "Planifié";
+          item.finishedAt = null;
+        }
+        return item;
+      })
     };
     return out;
   }
@@ -148,9 +164,9 @@ const Store = (() => {
     try { raw = localStorage.getItem(KEY); }
     catch (e) { throw new Error("[InkVault] Stockage inaccessible : bibliothèque non chargée.", { cause: e }); }
     if (raw === null) {
-      // Premier lancement seulement : ne jamais substituer le seed à une sauvegarde existante.
-      const fresh = normalize(seed());
-      if (!save(fresh)) throw new Error("[InkVault] Stockage inaccessible : bibliothèque de démonstration non enregistrée.");
+      // Premier lancement : bibliothèque réellement vide, sans données de démonstration.
+      const fresh = normalize({ items: [], activity: {}, goal: 40, prefs: {} });
+      if (!save(fresh)) throw new Error("[InkVault] Stockage inaccessible : bibliothèque vide non enregistrée.");
       return fresh;
     }
 
@@ -190,5 +206,7 @@ const Store = (() => {
     } catch (e) { return 0; }
   }
 
-  return { load, save, clear, size, valid, normalize, iso };
+  const demo = () => normalize(seed());
+
+  return { load, save, clear, size, valid, normalize, demo, iso };
 })();

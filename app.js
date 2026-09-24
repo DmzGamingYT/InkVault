@@ -23,7 +23,33 @@
   };
 
   /* ─────────── ÉTAT ─────────── */
-  let db    = Store.load();                       // persistance
+  let db;
+  try {
+    db = Store.load();
+  } catch (error) {
+    const showRecovery = () => {
+      const message = error && error.message ? error.message : "Les données locales n’ont pas pu être chargées.";
+      const safeMessage = String(message).replace(/[&<>\"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[m]));
+      document.body.innerHTML = `
+        <main class="boot-recovery" role="alert">
+          <div class="boot-recovery__card">
+            <div class="boot-recovery__mark">◆</div>
+            <h1>InkVault ne peut pas démarrer</h1>
+            <p>${safeMessage}</p>
+            <p class="boot-recovery__note">Tes données locales n’ont pas été effacées. Tu peux réinitialiser le stockage pour repartir avec la bibliothèque de démonstration.</p>
+            <button class="btn btn--primary" id="bootReset">Réinitialiser les données locales</button>
+          </div>
+        </main>`;
+      $("#bootReset").addEventListener("click", async () => {
+        if (!await confirmBox("Cette action effacera la sauvegarde locale. Continuer ?", "Réinitialiser")) return;
+        Store.clear();
+        location.reload();
+      });
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showRecovery, { once: true });
+    else showRecovery();
+    return;
+  }
   let items = db.items;
   const state = {
     q: "",
@@ -31,6 +57,8 @@
     sort:   db.prefs.sort   || "title",
     view:   db.prefs.view   || "grid",
     mode:   db.prefs.mode   || "text",   // "text" = recherche classique · "vibe" = recherche par ambiance
+    statusFilter: db.prefs.status || "all",
+    authorFilter: db.prefs.author || "",
     skin:   db.prefs.skin   || localStorage.getItem("ink-skin") ||
             (localStorage.getItem("ink-theme") === "light" ? "claire" : "gotham"),
     sbBudget: db.prefs.sb   ?? 50,        // budget du Smart Buy (€)
@@ -46,6 +74,8 @@
       sort:   state.sort   || "title",
       view:   state.view   || "grid",
       mode:   state.mode   || "text",
+      status: state.statusFilter || "all",
+      author: state.authorFilter || "",
       skin:   state.skin   || "gotham",
       sb:     state.sbBudget ?? 50
     };
@@ -71,15 +101,20 @@
 
   /* ═══════════ GLOW CURSEUR ═══════════ */
   function initCursor() {
-    if (!canHover()) return;
+    if (!canHover() || reduced()) return;
     const glow = $("#cursorGlow");
-    let x = innerWidth / 2, y = innerHeight / 2, cx = x, cy = y;
-    addEventListener("mousemove", e => { x = e.clientX; y = e.clientY; });
-    (function loop() {
+    let x = innerWidth / 2, y = innerHeight / 2, cx = x, cy = y, frame = 0;
+    function step() {
+      if (document.hidden) { frame = 0; return; }
       cx += (x - cx) * .12; cy += (y - cy) * .12;
       glow.style.transform = `translate(${cx}px, ${cy}px) translate(-50%,-50%)`;
-      requestAnimationFrame(loop);
-    })();
+      if (Math.abs(x - cx) + Math.abs(y - cy) > .5) frame = requestAnimationFrame(step);
+      else frame = 0;
+    }
+    addEventListener("mousemove", e => {
+      x = e.clientX; y = e.clientY;
+      if (!frame && !document.hidden) frame = requestAnimationFrame(step);
+    }, { passive: true });
   }
 
   /* ═══════════ TRANSITION DE SECTION (VOILE) ═══════════ */
@@ -217,6 +252,9 @@
 
   /* ═══════════ UTILITAIRES ═══════════ */
   const progress = it => it.volumes ? Math.round((it.read / it.volumes) * 100) : 0;
+  const textKey = value => String(value || "").toLowerCase()
+    .normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim();
 
   function shade(hex, amt) {
     const c = hex.replace("#", "");
@@ -229,6 +267,48 @@
   const esc = s => String(s).replace(/[&<>"']/g, m =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
+  const safeImageUrl = value => {
+    try {
+      const url = new URL(String(value || ""));
+      return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch { return ""; }
+  };
+
+  function openImageView(src, caption = "") {
+    const safe = safeImageUrl(src);
+    if (!safe) return;
+    const dialog = $("#imageView");
+    const img = $("#imageViewImg");
+    const cap = $("#imageViewCap");
+    if (!dialog || !img) return;
+    img.src = safe;
+    img.alt = caption || "Image agrandie";
+    if (cap) cap.textContent = caption;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+  }
+
+  function closeImageView() {
+    const dialog = $("#imageView");
+    if (!dialog) return;
+    if (typeof dialog.close === "function") dialog.close();
+    else dialog.removeAttribute("open");
+  }
+
+  function initImageView() {
+    const dialog = $("#imageView");
+    if (!dialog) return;
+    dialog.addEventListener("click", e => {
+      if (e.target === dialog || e.target.closest("[data-image-close]")) closeImageView();
+    });
+    dialog.addEventListener("close", () => {
+      const img = $("#imageViewImg");
+      if (img) img.removeAttribute("src");
+    });
+  }
+
+  const isHexColor = value => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value || ""));
+
   function starsHTML(r) {
     let out = "";
     for (let i = 1; i <= 5; i++) out += `<span class="star ${i <= Math.round(r) ? "is-on" : ""}">★</span>`;
@@ -239,15 +319,20 @@
 
   function countTo(el, target, dur = 1400, dec = 0) {
     if (!el) return;
+    const token = (el._countToken || 0) + 1;
+    el._countToken = token;
+    if (el._countRaf) cancelAnimationFrame(el._countRaf);
     const start = performance.now(), from = parseFloat(el.dataset.cur || 0);
     function step(now) {
+      if (el._countToken !== token) return;
       const p = Math.min((now - start) / dur, 1);
       const e = 1 - Math.pow(1 - p, 3);
       const v = from + (target - from) * e;
       el.textContent = dec ? v.toFixed(dec) : Math.round(v);
-      if (p < 1) requestAnimationFrame(step); else el.dataset.cur = target;
+      if (p < 1) el._countRaf = requestAnimationFrame(step);
+      else { el.dataset.cur = target; el._countRaf = 0; }
     }
-    requestAnimationFrame(step);
+    el._countRaf = requestAnimationFrame(step);
   }
 
   /* ═══════════ MÉTRIQUES ═══════════ */
@@ -272,22 +357,25 @@
   /* ═══════════ GRILLE ═══════════ */
   function getFiltered() {
     const okF = it =>
-      state.filter === "all"   ? true :
-      state.filter === "__fav" ? !!it.fav :
+      state.filter === "all"      ? true :
+      state.filter === "__fav"    ? !!it.fav :
+      state.filter === "__current" ? (it.status === "En cours" || (it.read > 0 && it.read < it.volumes)) :
       it.format === state.filter;
+    const okStatus = it => state.statusFilter === "all" || it.status === state.statusFilter;
+    const okAuthor = it => !state.authorFilter || it.author === state.authorFilter;
 
     /* ── Recherche par ambiance : classement par affinité ── */
     if (state.mode === "vibe") {
-      const res = AI.vibe(state.q, items.filter(okF));
+      const res = AI.vibe(state.q, items.filter(it => okF(it) && okStatus(it) && okAuthor(it)));
       state.vibe = res;
       return res.matches.map(m => m.item);
     }
     state.vibe = null;
 
-    const q = state.q.trim().toLowerCase();
+    const q = textKey(state.q);
     const out = items.filter(it => {
-      const okQ = !q || it.title.toLowerCase().includes(q) || it.author.toLowerCase().includes(q);
-      return okF(it) && okQ;
+      const okQ = !q || textKey(it.title).includes(q) || textKey(it.author).includes(q);
+      return okF(it) && okStatus(it) && okAuthor(it) && okQ;
     });
     const by = {
       title:    (a, b) => a.title.localeCompare(b.title),
@@ -322,6 +410,15 @@
     card.addEventListener("pointercancel", reset);
   }
 
+  const pendingCovers = new WeakMap();
+  const coverObserver = typeof IntersectionObserver === "undefined" ? null : new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      coverObserver.unobserve(entry.target);
+      if (entry.target.isConnected) Covers.paint(entry.target, pendingCovers.get(entry.target));
+    });
+  }, { rootMargin: "300px" });
+
   function renderGrid(animate = true) {
     const grid = $("#grid"), empty = $("#empty");
     const list = getFiltered();
@@ -331,7 +428,21 @@
 
     $("#resultCount").textContent = list.length;
     empty.hidden = list.length > 0;
+    const demoButton = $("#loadDemo");
+    if (demoButton) demoButton.hidden = items.length > 0;
+    if (!items.length) {
+      const title = empty.querySelector("h3"), copy = empty.querySelector("p");
+      if (title) title.textContent = "Votre bibliothèque est vide";
+      if (copy) copy.textContent = "Ajoutez votre premier ouvrage ou chargez la collection de démonstration.";
+    } else {
+      const title = empty.querySelector("h3"), copy = empty.querySelector("p");
+      if (title) title.textContent = "Aucun ouvrage trouvé";
+      if (copy) copy.textContent = "Essaie un autre mot-clé ou change de filtre.";
+    }
+    if (coverObserver) coverObserver.disconnect();
     grid.innerHTML = "";
+    const fragment = document.createDocumentFragment();
+    const progressBars = [], coversToObserve = [];
 
     list.forEach((it, i) => {
       const p = progress(it);
@@ -342,7 +453,7 @@
             <span class="card__why" title="${esc(mv.why.join(" · "))}">${esc(mv.why.length ? mv.why.join(" · ") : "mots-clés de ta recherche")}</span>
           </div>` : "";
       const card = document.createElement("article");
-      card.className = "card" + (animate ? " card--enter" : "");
+      card.className = "card" + (animate && i < 15 ? " card--enter" : "");
       card.style.setProperty("--cd", Math.min(i, 14) * 55 + "ms");
       card.dataset.id = it.id;
       card.tabIndex = 0;
@@ -374,7 +485,7 @@
             </div>
             <span class="status" data-s="${esc(it.status)}">${esc(it.status)}</span>
           </div>
-          <div class="progress"><i style="width:0%"></i></div>
+          <div class="progress"><i style="width:${animate && i < 15 ? 0 : p}%"></i></div>
           <div class="card__foot">
             <span><b>${it.read}</b>/${it.volumes} tomes</span>
             <span>${p}%</span>
@@ -392,21 +503,28 @@
         e.stopPropagation(); toggleFav(it.id);
       });
 
-      if (animate) {
+      if (animate && i < 15) {
         card.addEventListener("animationend", () => card.classList.remove("card--enter"), { once: true });
+        const bar = card.querySelector(".progress i");
+        bar.style.transitionDelay = Math.min(i, 14) * 55 + 340 + "ms";
+        progressBars.push([bar, p]);
       }
 
-      grid.appendChild(card);
-      Covers.paint(card.querySelector(".card__cover"), it);
+      fragment.appendChild(card);
+      const cover = card.querySelector(".card__cover");
+      if (coverObserver) {
+        pendingCovers.set(cover, it);
+        coversToObserve.push(cover);
+      } else Covers.paint(cover, it);
       bindTilt(card);
-
-      requestAnimationFrame(() => setTimeout(() => {
-        const bar = card.querySelector(".progress i");
-        if (bar) bar.style.width = p + "%";
-      }, animate ? Math.min(i, 14) * 55 + 340 : 60));
     });
 
     grid.classList.toggle("is-list", state.view === "list");
+    grid.appendChild(fragment);
+    coversToObserve.forEach(cover => coverObserver.observe(cover));
+    if (progressBars.length) requestAnimationFrame(() => {
+      progressBars.forEach(([bar, p]) => { if (bar.isConnected) bar.style.width = p + "%"; });
+    });
     if (state.mode === "vibe") paintVibe();
   }
 
@@ -455,6 +573,8 @@
     if (input) input.placeholder = on
       ? "Décris une ambiance : « un seinen sombre, de l'encre détaillée… »"
       : "Rechercher un titre, un auteur…";
+    const sort = $("#sort");
+    if (sort) { sort.disabled = on; sort.title = on ? "Le tri est remplacé par l’affinité d’ambiance" : ""; }
     if (!on) {
       state.vibe = null;
       $("#vibeTags").innerHTML = "";
@@ -489,8 +609,13 @@
   /* ═══════════ FAVORIS ═══════════ */
   function toggleFav(id) {
     const it = items.find(x => x.id === id); if (!it) return;
+    const previous = it.fav;
     it.fav = !it.fav;
-    persist();
+    if (!persist()) {
+      it.fav = previous;
+      showToast(ic("alert") + " Impossible d’enregistrer le favori.");
+      return;
+    }
 
     const card = $(`.card[data-id="${id}"] .fav`);
     if (card) {
@@ -517,6 +642,17 @@
   }
 
   /* ═══════════ BARRE D'OUTILS ═══════════ */
+  function syncAuthorFilter() {
+    const select = $("#authorFilter");
+    if (!select) return;
+    const current = state.authorFilter;
+    const authors = [...new Set(items.map(it => it.author).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
+    select.innerHTML = `<option value="">Auteur : tous</option>` + authors.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+    if (authors.includes(current)) state.authorFilter = current;
+    else state.authorFilter = "";
+    select.value = state.authorFilter;
+  }
+
   function initToolbar() {
     let searchTimer = 0;
     $("#search").addEventListener("input", e => {
@@ -538,9 +674,13 @@
     $$("#filters .chip[data-filter]").forEach(x =>
       x.classList.toggle("is-active", x.dataset.filter === state.filter));
     $("#sort").value = state.sort;
+    $("#statusFilter").value = state.statusFilter;
+    syncAuthorFilter();
     $$(".view-btn").forEach(b => b.classList.toggle("is-active", b.dataset.view === state.view));
 
     $("#sort").addEventListener("change", e => { state.sort = e.target.value; persist(); renderGrid(); });
+    $("#statusFilter").addEventListener("change", e => { state.statusFilter = e.target.value; persist(); renderGrid(); });
+    $("#authorFilter").addEventListener("change", e => { state.authorFilter = e.target.value; persist(); renderGrid(); });
 
     $$(".view-btn").forEach(b => b.addEventListener("click", () => {
       $$(".view-btn").forEach(x => x.classList.remove("is-active"));
@@ -551,6 +691,7 @@
     }));
 
     $("#resetFilters").addEventListener("click", resetFilters);
+    $("#loadDemo").addEventListener("click", loadDemo);
     $("#btnImport").addEventListener("click", () => $("#fileImport").click());
     $("#fileImport").addEventListener("change", importJSON);
     /* #btnExport est câblé par initExport() — menu JSON / Markdown / PDF */
@@ -595,11 +736,27 @@
   }
 
   function resetFilters() {
-    state.q = ""; state.filter = "all";
+    state.q = ""; state.filter = "all"; state.statusFilter = "all"; state.authorFilter = "";
     $("#search").value = "";
+    $("#statusFilter").value = "all";
+    syncAuthorFilter();
     $$("#filters .chip[data-filter]").forEach(x => x.classList.toggle("is-active", x.dataset.filter === "all"));
     persist();
     renderGrid();
+  }
+
+  async function loadDemo() {
+    if (items.length && !await confirmBox("Charger la collection de démonstration à la place de la bibliothèque actuelle ?", "Charger la démo")) return;
+    const demo = Store.demo();
+    if (!Store.save(demo)) { showToast(ic("alert") + " Impossible d’enregistrer la collection de démonstration."); return; }
+    db = demo;
+    items = db.items;
+    state.filter = "all"; state.statusFilter = "all"; state.authorFilter = "";
+    $("#statusFilter").value = "all";
+    syncAuthorFilter();
+    refreshAll();
+    buildHeroStack();
+    showToast(ic("spark") + " Collection de démonstration chargée.");
   }
 
   /* ═══════════ EXPORT / IMPORT ═══════════ */
@@ -644,6 +801,8 @@
       state.sort   = db.prefs.sort   || "title";
       state.view   = db.prefs.view   || "grid";
       state.mode   = db.prefs.mode   || "text";
+      state.statusFilter = db.prefs.status || "all";
+      state.authorFilter = db.prefs.author || "";
       state.skin   = db.prefs.skin   || state.skin;
       state.sbBudget = db.prefs.sb   ?? state.sbBudget;
       persist();
@@ -651,6 +810,8 @@
       $("#sbBudget").value = state.sbBudget;
       syncVibeChrome();
       $("#sort").value = state.sort;
+      $("#statusFilter").value = state.statusFilter;
+      syncAuthorFilter();
       $$("#filters .chip[data-filter]").forEach(x => x.classList.toggle("is-active", x.dataset.filter === state.filter));
       $$(".view-btn").forEach(b => b.classList.toggle("is-active", b.dataset.view === state.view));
 
@@ -699,9 +860,12 @@
       </li>`;
     }).join("");
 
-    // Sparkline années
+    // Sparkline années d'ajout (et non années de publication)
     const byYear = {};
-    items.forEach(i => byYear[i.year] = (byYear[i.year] || 0) + 1);
+    items.forEach(i => {
+      const year = String(i.addedAt || "").slice(0, 4);
+      if (/^\\d{4}$/.test(year)) byYear[year] = (byYear[year] || 0) + 1;
+    });
     const years = Object.keys(byYear).sort().slice(-8);
     const maxY  = Math.max(...years.map(y => byYear[y]), 1);
     $("#spark").innerHTML = years.map(y => `
@@ -821,6 +985,8 @@
 
   /* ═══════════ FORMULAIRE ═══════════ */
   let editingId = null;
+  let reviewTimer = 0;
+  let lastSavedReview = "";
   function initForm() {
     const sw = $("#swatches"), colorInput = $("#colorInput");
     const form = $("#form");
@@ -863,21 +1029,36 @@
 
       const current = editingId === null ? null : items.find(x => x.id === editingId);
       if (editingId !== null && !current) { showToast(ic("alert") + " Ouvrage introuvable."); return; }
-      const volumes = Math.max(1, parseInt(f.get("volumes")) || 1);
-      const status = f.get("status");
+      const volumes = Math.min(9999, Math.max(1, parseInt(f.get("volumes"), 10) || 1));
+      const requestedStatus = String(f.get("status") || "Planifié");
+      const allowedStatuses = new Set(["Planifié", "En cours", "Terminé"]);
+      const allowedFormats = new Set(["Manga", "Comic", "Webtoon", "Graphic Novel"]);
+      const format = String(f.get("format") || "Comic").slice(0, 40);
+      const year = parseInt(f.get("year"), 10) || new Date().getFullYear();
+      const rating = Math.min(5, Math.max(0, parseFloat(f.get("rating")) || 0));
+      const color = String(f.get("color") || "#7c5cff");
+      const desc = String(f.get("desc") || "").trim().slice(0, 2000);
+      const requestedRead = parseInt(f.get("read"), 10) || 0;
+      if (!allowedStatuses.has(requestedStatus) || !allowedFormats.has(format) || !isHexColor(color) ||
+          year < 1900 || year > 2100 || title.length > 300 || author.length > 200) {
+        showToast(ic("alert") + " Certains champs sont invalides.");
+        return;
+      }
+      const read = requestedStatus === "Terminé" ? volumes
+        : requestedStatus === "Planifié" ? 0
+        : Math.min(volumes, Math.max(0, requestedRead));
+      const status = read >= volumes ? "Terminé" : read > 0 ? "En cours" : "Planifié";
       const today = Store.iso(new Date());
       const item = {
         ...(current || {}),
         id: current ? current.id : items.reduce((max, x) => Math.max(max, x.id + 1), Date.now()),
-        title, author,
-        format: f.get("format"),
-        year: parseInt(f.get("year")) || new Date().getFullYear(),
+        title, author, format,
+        year: Math.min(2100, Math.max(1900, year)),
         volumes,
-        read: status === "Terminé" ? volumes : status === "Planifié" ? 0 : Math.min(current?.read || 0, volumes - 1),
-        rating: parseFloat(f.get("rating")) || 0,
-        status,
-        color: f.get("color") || "#7c5cff",
-        desc: current?.desc || "Ajouté récemment à ta bibliothèque InkVault.",
+        read,
+        rating,
+        status, color,
+        desc: desc || current?.desc || "Ajouté récemment à ta bibliothèque InkVault.",
         fav: current?.fav || false,
         review: current?.review || "",
         addedAt: current?.addedAt || today,
@@ -989,11 +1170,12 @@
     resetAuthorLive();
     const seq = ++liveSeq;
     AI.authorLive(name, items)
-      .then(d => { if (seq === liveSeq) paintAuthorLive(d, name); })
-      .catch(() => {
+      .then(d => { if (seq === liveSeq) paintAuthorLive(d, name); })      .catch(() => {
         if (seq !== liveSeq) return;
-      $("#amLiveNote").innerHTML =
-        `${ic("globe")} <span>Hors ligne — la bibliographie locale documentée ci-dessus reste affichée.</span>`;
+        $("#amLiveNote").innerHTML =
+          `${ic("globe")} <span>Hors ligne — la bibliographie locale documentée ci-dessus reste affichée.</span>`;
+        const retry = $("#amLiveRetry");
+        if (retry) retry.hidden = false;
       });
   }
 
@@ -1005,6 +1187,8 @@
     $("#amLiveWorks").innerHTML = "";
     $("#amLiveMore").hidden = true;
     $("#amLiveMore").onclick = null;
+    $("#amLiveRetry").hidden = true;
+    $("#amLiveRetry").onclick = null;
     $("#amLiveSrc").hidden = true;
     $("#amBioExt").hidden = true;
     $("#amBioExt").textContent = "";
@@ -1043,16 +1227,23 @@
     const more = $("#amLiveMore");
     const row = (w, i) => {
       const own = w.exact || inLibNow(w.t);
+      const viewSrc = safeImageUrl(w.c) || safeImageUrl(w.src);
+      const cover = viewSrc
+        ? `<img class="am__lc" src="${esc(viewSrc)}" data-view="${esc(viewSrc)}" alt="" loading="lazy" decoding="async">`
+        : `<span class="am__lc am__lc--ph" data-lc="${esc(w.t)}">${ic("book")}</span>`;
+      const view = viewSrc
+        ? `<button class="am__view" type="button" data-view="${esc(viewSrc)}" title="Agrandir l’image" aria-label="Agrandir l’image">${ic("image")}</button>`
+        : "";
+      const action = own
+        ? `<span class="am__b-own">${ic("check")} possédé</span><button class="am__remove" type="button" data-removelive="${i}" title="Retirer de la bibliothèque" aria-label="Retirer de la bibliothèque">${ic("trash")}</button>`
+        : w.series ? `<span class="am__b-ser">${ic("book")} série suivie</span>`
+        : `<span class="am__add">+ Ajouter</span>`;
       return `
-      <li${own ? ` class="is-own"` : ` data-addlive="${i}"`} title="${esc(own ? w.t + " — déjà dans ta collection" : "Clique pour ajouter « " + w.t + " » à ta bibliothèque")}">
-        ${w.c
-          ? `<img class="am__lc" src="${w.c}" alt="" loading="lazy" decoding="async">`
-          : `<span class="am__lc am__lc--ph" data-lc="${esc(w.t)}">${ic("book")}</span>`}
+      <li data-live="${i}"${own ? ` class="is-own"` : ` data-addlive="${i}"`} title="${esc(own ? w.t + " — déjà dans ta collection" : "Clique pour ajouter « " + w.t + " » à ta bibliothèque")}">
+        ${cover}
         <div class="am__work-b"><span class="am__work-t">${esc(w.t)}</span></div>
         <span class="am__work-s">${w.y || "—"}</span>
-        ${own ? `<span class="am__b-own">${ic("check")} possédé</span>`
-          : w.series ? `<span class="am__b-ser">${ic("book")} série suivie</span>`
-          : `<span class="am__add">+ Ajouter</span>`}
+        <div class="am__actions">${view}${action}</div>
       </li>`;
     };
     const render = () => {
@@ -1079,8 +1270,8 @@
         .then(url => {
           if (!url || !ph.parentNode) return;
           const img = document.createElement("img");
-          img.className = "am__lc"; img.alt = "";
-          img.loading = "lazy"; img.decoding = "async";
+          img.className = "am__lc";          img.alt = ""; img.loading = "lazy"; img.decoding = "async";
+          img.dataset.view = url;
           img.src = url;
           ph.replaceWith(img);
         })
@@ -1088,14 +1279,22 @@
     });
 
     const src = $("#amLiveSrc");
-    src.textContent = "Sources : " + (d.src.join(" · ") || "—") + " · cache local 7 jours.";
+    src.textContent = "Sources : " + (d.src.join(" · ") || "—") +
+      (d.mdCount ? " · MangaDex (données & couvertures, crédit API)" : "") +
+      " · cache local 7 jours.";
     src.hidden = false;
 
     /* Portrait (Wikipédia puis photo Open Library) — les initiales restent
        dessous en repli si l'image ne charge pas */
-    if (d.photo) {
-      $("#amAva").insertAdjacentHTML("beforeend",
-        `<img class="am__ava-img" src="${d.photo}" alt="" loading="lazy" onerror="this.remove()">`);
+    const photo = safeImageUrl(d.photo);
+    if (photo) {
+      const img = document.createElement("img");
+      img.className = "am__ava-img";
+      img.alt = "";
+      img.loading = "lazy";
+      img.addEventListener("error", () => img.remove());
+      img.src = photo;
+      $("#amAva").appendChild(img);
     }
 
     /* Sous-titre : description Wikipédia + dates de l'autorité Open Library */
@@ -1164,8 +1363,52 @@
   function markOwn(rowEl) {
     rowEl.classList.add("is-own");
     rowEl.removeAttribute("data-addlive");
-    const chip = rowEl.querySelector(".am__add");
-    if (chip) chip.outerHTML = `<span class="am__b-own">${ic("check")} possédé</span>`;
+    const actions = rowEl.querySelector(".am__actions");
+    if (actions) {
+      const view = actions.querySelector("[data-view]");
+      actions.innerHTML = (view ? view.outerHTML : "") +
+        `<span class="am__b-own">${ic("check")} possédé</span>` +
+        `<button class="am__remove" type="button" data-removelive="${esc(rowEl.dataset.live)}" title="Retirer de la bibliothèque" aria-label="Retirer de la bibliothèque">${ic("trash")}</button>`;
+    } else {
+      const chip = rowEl.querySelector(".am__add");
+      if (chip) chip.outerHTML = `<span class="am__b-own">${ic("check")} possédé</span>`;
+    }
+  }
+
+  function markUnowned(rowEl) {
+    rowEl.classList.remove("is-own");
+    rowEl.dataset.addlive = rowEl.dataset.live;
+    rowEl.title = "Clique pour ajouter cet ouvrage à ta bibliothèque";
+    const actions = rowEl.querySelector(".am__actions");
+    if (actions) {
+      const view = actions.querySelector("[data-view]");
+      actions.innerHTML = (view ? view.outerHTML : "") + `<span class="am__add">+ Ajouter</span>`;
+    }
+  }
+
+  async function removeLiveWork(rowEl) {
+    const w = liveWorks[+rowEl.dataset.live];
+    if (!w) return;
+    const authorName = liveAuthor || (lastAuthor && lastAuthor.name) || "";
+    let index = items.findIndex(i => AI.key(i.title) === AI.key(w.t) && i.author === authorName);
+    if (index < 0) index = items.findIndex(i => AI.key(i.title) === AI.key(w.t));
+    if (index < 0) {
+      showToast(ic("alert") + " Cet ouvrage n’est plus dans la bibliothèque.");
+      markUnowned(rowEl);
+      return;
+    }
+    const item = items[index];
+    const ok = await confirmBox(`Retirer « ${item.title} » de ta bibliothèque ?`, "Retirer");
+    if (!ok) return;
+    items.splice(index, 1);
+    if (!persist()) {
+      items.splice(index, 0, item);
+      showToast(ic("alert") + " Retrait impossible : stockage local indisponible.");
+      return;
+    }
+    markUnowned(rowEl);
+    refreshAll(); buildHeroStack();
+    showToast(ic("check") + ` « ${esc(item.title)} » retiré de la bibliothèque.`);
   }
 
   function addLiveWork(w, authorName) {
@@ -1183,11 +1426,19 @@
       addedAt: Store.iso(new Date()), finishedAt: null
     };
     items.unshift(item);
-    persist(); refreshAll(); buildHeroStack();
+    if (!persist()) {
+      items.shift();
+      showToast(ic("alert") + " Ajout impossible : stockage local indisponible.");
+      return null;
+    }
+    refreshAll(); buildHeroStack();
     return item;
   }
 
   function initAuthor() {
+    $("#amLiveRetry").addEventListener("click", () => {
+      if (lastAuthor) openAuthor(lastAuthor.name);
+    });
     amodal.addEventListener("click", e => {
       if (e.target.hasAttribute("data-aclose")) closeAuthor();
     });
@@ -1206,8 +1457,23 @@
       openModal(+b.dataset.open);
     });
 
-    /* Bibliographie LIVE : clic sur un titre → ajout à la bibliothèque */
+    /* Bibliographie LIVE : image → agrandissement, poubelle → retrait,
+       titre → ajout à la bibliothèque */
     $("#amLiveWorks").addEventListener("click", e => {
+      const view = e.target.closest("[data-view]");
+      if (view) {
+        e.preventDefault(); e.stopPropagation();
+        const rowEl = view.closest("[data-live]");
+        const title = rowEl && rowEl.querySelector(".am__work-t");
+        openImageView(view.dataset.view, title ? title.textContent : "");
+        return;
+      }
+      const remove = e.target.closest("[data-removelive]");
+      if (remove) {
+        e.preventDefault(); e.stopPropagation();
+        removeLiveWork(remove.closest("[data-live]"));
+        return;
+      }
       const rowEl = e.target.closest("[data-addlive]"); if (!rowEl) return;
       const w = liveWorks[+rowEl.dataset.addlive]; if (!w) return;
       if (inLibNow(w.t)) {
@@ -1219,7 +1485,8 @@
         showToast(ic("book") + ` « ${esc(w.t)} » fait partie d'une série déjà suivie.`);
         return;
       }
-      addLiveWork(w, liveAuthor || (lastAuthor && lastAuthor.name) || "");
+      const added = addLiveWork(w, liveAuthor || (lastAuthor && lastAuthor.name) || "");
+      if (!added) return;
       markOwn(rowEl);
       showToast(ic("check") + ` « ${esc(w.t)} » ajouté à la bibliothèque !`);
     });
@@ -1237,15 +1504,17 @@
   function mockPage(it, n) {
     const boxes = GAL_LAYOUTS[(n + it.id) % GAL_LAYOUTS.length];
     const c = it.color;
+    /* Planche façon encrage : cases cerclées de noir, teinte discrète de la série */
     const rects = boxes.map(([x, y, w, h], i) => {
-      const op = (0.16 + ((i * 37 + n * 13 + it.id * 7) % 40) / 100).toFixed(2);
+      const op = (0.06 + ((i * 37 + n * 13 + it.id * 7) % 16) / 100).toFixed(2);
       const stroke = (i + n) % 2
-        ? `<path d="M${x + 14} ${y + h - 22} L${x + w * 0.42} ${y + 26} L${x + w - 14} ${y + h - 36}" stroke="#141414" stroke-width="5" fill="none" opacity=".5"/>` +
-          `<circle cx="${x + w * 0.66}" cy="${y + h * 0.42}" r="${Math.min(w, h) * 0.16}" fill="#141414" opacity=".35"/>`
-        : `<path d="M${x + 12} ${y + h * 0.3} Q${x + w / 2} ${y + h * 0.85} ${x + w - 12} ${y + h * 0.25}" stroke="#141414" stroke-width="6" fill="none" opacity=".45"/>`;
-      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="${c}" opacity="${op}"/>` +
-             `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="url(#ht)"/>` +
-             stroke;
+        ? `<path d="M${x + 14} ${y + h - 22} L${x + w * 0.42} ${y + 26} L${x + w - 14} ${y + h - 36}" stroke="#1b1b1b" stroke-width="3" stroke-linejoin="round" fill="none" opacity=".38"/>` +
+          `<circle cx="${x + w * 0.66}" cy="${y + h * 0.42}" r="${Math.min(w, h) * 0.14}" fill="#1b1b1b" opacity=".22"/>`
+        : `<path d="M${x + 12} ${y + h * 0.3} Q${x + w / 2} ${y + h * 0.85} ${x + w - 12} ${y + h * 0.25}" stroke="#1b1b1b" stroke-width="3" stroke-linecap="round" fill="none" opacity=".34"/>`;
+      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${c}" opacity="${op}"/>` +
+             `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="url(#ht)"/>` +
+             stroke +
+             `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="none" stroke="#1b1b1b" stroke-width="3.5"/>`;
     }).join("");
     const svg =
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600">` +
@@ -1258,10 +1527,48 @@
     return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   }
 
+  /* Affiche une vue dans la scène : préchargement puis fondu enchaîné
+     (pas de flash blanc ni de saut de mise en page). */
+  let galSeq = 0;
   function galShow(stage, src, cap) {
-    stage.innerHTML =
-      `<img src="${src}" alt="${esc(cap)}" />` +
-      `<span class="gal__stage-cap">${esc(cap)}</span>`;
+    const seq = ++galSeq;
+    const img = new Image();
+    img.alt = cap;
+    img.decoding = "async";
+    img.src = src;
+    const ready = img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+
+    ready.then(() => {
+      if (seq !== galSeq) return;           /* un clic plus récent a pris la main */
+      const frame = document.createElement("div");
+      frame.className = "gal__frame";
+      const bg = document.createElement("div");
+      bg.className = "gal__bg";
+      bg.style.backgroundImage = `url("${String(src).replace(/["\\\n]/g, encodeURIComponent)}")`;
+      if (String(src).startsWith("data:image/svg+xml")) img.className = "mock-page";
+      const capEl = document.createElement("span");
+      capEl.className = "gal__stage-cap";
+      capEl.textContent = cap;
+      frame.append(bg, img, capEl);
+
+      const old = $$(".gal__frame", stage);
+      stage.appendChild(frame);
+      stage.classList.remove("is-loading");
+      void frame.offsetWidth;               /* force le style initial avant la transition */
+      frame.classList.add("is-in");
+      old.forEach(o => {
+        o.classList.remove("is-in");
+        setTimeout(() => o.remove(), reduced() ? 0 : 380);
+      });
+    });
+  }
+
+  function paintGalThumbs(thumbs, all, activeIdx) {
+    thumbs.innerHTML = all.map((v, i) => v.pending
+      ? `<span class="gal__thumb gal__thumb--skel" aria-hidden="true"></span>`
+      : `<button class="gal__thumb${i === activeIdx ? " is-on" : ""}" data-src="${esc(v.src)}" data-cap="${esc(v.cap)}" ` +
+        `type="button" aria-pressed="${i === activeIdx}" aria-label="${esc(v.cap)}">` +
+        `<img src="${esc(v.src)}" alt="" loading="lazy" decoding="async" /></button>`).join("");
   }
 
   function renderGallery(it) {
@@ -1272,18 +1579,26 @@
       { cap: "Double page — maquette générée", src: mockPage(it, 2) }
     ];
 
-    const paintThumbs = (coverSrc) => {
-      const all = coverSrc ? [{ cap: "Couverture", src: coverSrc, isCover: true }].concat(views) : views;
-      thumbs.innerHTML = all.map((v, i) =>
-        `<button class="gal__thumb${i === 0 ? " is-on" : ""}" data-src="${v.src}" data-cap="${esc(v.cap)}" type="button">` +
-        `<img src="${v.src}" alt="${esc(v.cap)}" /></button>`).join("");
-      galShow(stage, all[0].src, all[0].cap);
-    };
+    /* Emplacement de couverture réservé d'emblée : pas de saut 2 → 3 miniatures.
+       La planche s'affiche tout de suite ; la couverture prend la main à son arrivée
+       sauf si l'utilisateur a déjà choisi une autre vue. */
+    stage.innerHTML = "";
+    stage.classList.add("is-loading");
+    paintGalThumbs(thumbs, [{ pending: true }].concat(views), 1);
+    galShow(stage, views[0].src, views[0].cap);
 
-    paintThumbs(null);
-    Covers.resolve(it).then(url => {
-      if (url) paintThumbs(url);   /* la couverture devient la vue principale */
-    }).catch(() => {});
+    Covers.resolve(it).catch(() => null).then(url => {
+      if (state.openId !== it.id) return;   /* la fiche a changé entre-temps */
+      const src = safeImageUrl(url);
+      const onIdx = $$("button.gal__thumb", thumbs).findIndex(t => t.classList.contains("is-on"));
+      const untouched = onIdx <= 0;
+      if (!src) {
+        paintGalThumbs(thumbs, views, untouched ? 0 : onIdx);
+        return;
+      }
+      paintGalThumbs(thumbs, [{ cap: "Couverture", src }].concat(views), untouched ? 0 : onIdx + 1);
+      if (untouched) galShow(stage, src, "Couverture");
+    });
 
     const q = encodeURIComponent(`${it.title} ${it.author}`);
     $("#galExt").innerHTML =
@@ -1303,11 +1618,25 @@
 
   function initBookExtras() {
     /* Miniatures de la galerie (état porté par les data-attributes) */
-    $("#galThumbs").addEventListener("click", e => {
-      const b = e.target.closest(".gal__thumb"); if (!b) return;
-      $$(".gal__thumb").forEach(t => t.classList.remove("is-on"));
-      b.classList.add("is-on");
-      galShow($("#galStage"), b.dataset.src, b.dataset.cap);
+    const selectThumb = b => {
+      if (!b || b.classList.contains("is-on")) return;
+      $$("#galThumbs .gal__thumb").forEach(t => {
+        t.classList.toggle("is-on", t === b);
+        if (t.tagName === "BUTTON") t.setAttribute("aria-pressed", String(t === b));
+      });
+      const src = safeImageUrl(b.dataset.src) || b.dataset.src;
+      galShow($("#galStage"), src, b.dataset.cap);
+    };
+    $("#galThumbs").addEventListener("click", e => selectThumb(e.target.closest("button.gal__thumb")));
+    /* Flèches gauche/droite pour parcourir les vues */
+    $("#galThumbs").addEventListener("keydown", e => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const list = $$("#galThumbs button.gal__thumb"); if (!list.length) return;
+      const cur = Math.max(0, list.indexOf(document.activeElement));
+      const next = list[(cur + (e.key === "ArrowRight" ? 1 : -1) + list.length) % list.length];
+      e.preventDefault();
+      next.focus();
+      selectThumb(next);
     });
 
     /* Variante d'édition → persistée sur l'ouvrage */
@@ -1396,7 +1725,17 @@
     }
   }
 
+  function flushReview() {
+    clearTimeout(reviewTimer);
+    const it = items.find(x => x.id === state.openId);
+    if (!it || it.review === lastSavedReview) return true;
+    if (persist()) { lastSavedReview = it.review; return true; }
+    it.review = lastSavedReview;
+    return false;
+  }
+
   function openModal(id) {
+    if (state.openId !== null && state.openId !== id) flushReview();
     const it = items.find(x => x.id === id); if (!it) return;
     state.openId = id;
 
@@ -1426,6 +1765,7 @@
 
     const rev = $("#mReview");
     rev.value = it.review || "";
+    lastSavedReview = rev.value;
 
     syncModalFav(it);
     updateModalProgress(it);
@@ -1451,6 +1791,7 @@
 
   function closeModal() {
     if (!modal.classList.contains("is-open")) return;
+    if (!flushReview()) showToast(ic("alert") + " Impossible d’enregistrer la note.");
     modal.classList.remove("is-open");
     modal.setAttribute("aria-hidden", "true");
     document.body.classList.remove("no-scroll");
@@ -1480,7 +1821,7 @@
       const it = items.find(x => x.id === state.openId); if (!it) return;
       editingId = it.id;
       const form = $("#form");
-      for (const key of ["title", "author", "format", "year", "volumes", "status", "rating", "color"])
+      for (const key of ["title", "author", "format", "year", "volumes", "read", "status", "rating", "color", "desc"])
         form.elements.namedItem(key).value = it[key];
       $$(".swatch", $("#swatches")).forEach(x => x.classList.toggle("is-active", x.dataset.c === it.color));
       form.querySelector('[name="rating"]').dispatchEvent(new Event("input"));
@@ -1492,16 +1833,27 @@
       form.elements.namedItem("title").focus();
     });
 
-    // Avis personnel : enregistrer avant toute fermeture ou ouverture d'une autre fiche.
+    // Avis personnel : sauvegarde différée pour éviter une écriture à chaque frappe.
     $("#mReview").addEventListener("input", e => {
       const it = items.find(x => x.id === state.openId); if (!it) return;
       it.review = e.target.value.trim();
-      persist();
-      renderGrid(false);
+      clearTimeout(reviewTimer);
+      reviewTimer = setTimeout(() => {
+        if (persist()) {
+          lastSavedReview = it.review;
+          renderGrid(false);
+        } else {
+          it.review = lastSavedReview;
+          e.target.value = lastSavedReview;
+          showToast(ic("alert") + " Impossible d’enregistrer la note.");
+        }
+      }, 350);
     });
 
     $("#mNext").addEventListener("click", () => {
       const it = items.find(x => x.id === state.openId); if (!it) return;
+      const previous = { read: it.read, status: it.status, finishedAt: it.finishedAt };
+      const previousActivity = { ...db.activity };
       it.read = Math.min(it.volumes, it.read + 1);
       logSession(1);
       const finishing = it.read >= it.volumes;
@@ -1512,10 +1864,17 @@
       } else if (it.status === "Planifié") {
         it.status = "En cours";
       }
+      if (!persist()) {
+        Object.assign(it, previous);
+        db.activity = previousActivity;
+        updateModalProgress(it);
+        $("#mStatus").textContent = it.status;
+        showToast(ic("alert") + " Progression non enregistrée.");
+        return;
+      }
       updateModalProgress(it);
       $("#mStatus").textContent = it.status;
       $("#mNext").style.display = it.read >= it.volumes ? "none" : "";
-      persist();
       refreshAll();
       showToast(finishing ? ic("check") + " Ouvrage terminé !" : `${ic("book")} Tome ${it.read}/${it.volumes}`);
     });
@@ -2178,6 +2537,7 @@
     initSmartBuy();
     initAuthor();
     initBookExtras();
+    initImageView();
     initReading();
     initExport();
 
@@ -2186,6 +2546,5 @@
     renderStats();
     observeStats();
 
-    Covers.warmAll(items);
   });
 })();

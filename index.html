@@ -17,6 +17,8 @@
 <link rel="preconnect" href="https://covers.openlibrary.org">
 <link rel="preconnect" href="https://www.googleapis.com">
 <link rel="preconnect" href="https://en.wikipedia.org">
+<link rel="preconnect" href="https://api.mangadex.org">
+<link rel="preconnect" href="https://uploads.mangadex.org">
 <link rel="preconnect" href="https://graphql.anilist.co">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css" />
@@ -73,10 +75,10 @@
 
 <!-- ════════ NAVIGATION ════════ -->
 <header class="nav" id="nav">
-  <div class="nav__brand" data-scroll="hero">
+  <button class="nav__brand" data-scroll="hero" type="button" aria-label="Retour à l’accueil">
     <span class="nav__mark">◆</span>
     <span class="nav__name">INK<em>VAULT</em></span>
-  </div>
+  </button>
 
   <nav class="nav__links">
     <a href="#hero" class="nav__link is-active" data-nav="hero"><span>Accueil</span></a>
@@ -186,7 +188,7 @@
       <h2 class="section-title">Catalogue <em>complet</em></h2>
     </div>
     <div class="section-note">
-      <span id="resultCount">0</span> résultats
+      <span id="resultCount" aria-live="polite">0</span> résultats
     </div>
   </div>
 
@@ -195,7 +197,7 @@
     <div class="search">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
       <input type="text" id="search" placeholder="Rechercher un titre, un auteur…" autocomplete="off" />
-      <kbd>⌘K</kbd>
+      <kbd>⌘K / Ctrl K</kbd>
     </div>
 
     <div class="filters" id="filters">
@@ -204,9 +206,22 @@
       <button class="chip" data-filter="Manga">Mangas</button>
       <button class="chip" data-filter="Webtoon">Webtoons</button>
       <button class="chip" data-filter="Graphic Novel">Graphic Novels</button>
+      <button class="chip" data-filter="__current"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg> En cours</button>
       <button class="chip chip--fav" data-filter="__fav"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg> Favoris <b>0</b></button>
       <button class="chip chip--ai" id="vibeToggle" aria-pressed="false"
               title="Recherche par ambiance & style visuel">✦ Ambiance</button>
+    </div>
+
+    <div class="toolbar__filters">
+      <select id="statusFilter" class="select" aria-label="Filtrer par statut">
+        <option value="all">Statut : tous</option>
+        <option value="Planifié">Statut : planifiés</option>
+        <option value="En cours">Statut : en cours</option>
+        <option value="Terminé">Statut : terminés</option>
+      </select>
+      <select id="authorFilter" class="select" aria-label="Filtrer par auteur">
+        <option value="">Auteur : tous</option>
+      </select>
     </div>
 
     <div class="sortwrap">
@@ -267,7 +282,9 @@
     <div class="empty__icon"><svg class="ic ic--lg" aria-hidden="true"><use href="#i-search"/></svg></div>
     <h3>Aucun ouvrage trouvé</h3>
     <p>Essaie un autre mot-clé ou change de filtre.</p>
-    <button class="btn btn--ghost btn--sm" id="resetFilters"><span>Réinitialiser</span></button>
+    <button class="btn btn--ghost btn--sm" id="resetFilters"><span>Réinitialiser les filtres</span></button>
+    <button class="btn btn--ghost btn--sm" id="loadDemo"><span>Charger la démo</span></button>
+    <button class="btn btn--primary btn--sm" id="emptyAdd" data-scroll="add"><span>Ajouter un ouvrage</span></button>
   </div>
 </section>
 
@@ -394,7 +411,7 @@
     </div>
 
     <div class="stat-card stat-card--wide">
-      <div class="stat-card__head"><h4>Années d'acquisition</h4></div>
+      <div class="stat-card__head"><h4>Années d’ajout</h4></div>
       <div class="spark" id="spark"></div>
     </div>
   </div>
@@ -482,9 +499,19 @@
     </div>
 
     <label class="field">
+      <span>Description <small class="field__hint">Optionnelle · visible dans la fiche</small></span>
+      <textarea name="desc" rows="3" placeholder="Un résumé, une note de lecture, un souvenir…"></textarea>
+    </label>
+
+    <label class="field">
       <span>Couleur de couverture</span>
       <div class="swatches" id="swatches"></div>
       <input type="hidden" name="color" id="colorInput" value="#7c5cff" />
+    </label>
+
+    <label class="field">
+      <span>Tomes lus</span>
+      <input type="number" name="read" min="0" value="0" />
     </label>
 
     <div class="form__actions">
@@ -509,9 +536,8 @@
 <div class="modal" id="modal" aria-hidden="true">
   <div class="modal__backdrop" data-close></div>
   <div class="modal__card" role="dialog" aria-modal="true">
-    <button class="modal__close" data-close aria-label="Fermer">✕</button>
-    <div class="modal__cover" id="mCover"></div>
-    <div class="modal__body">
+    <button class="modal__close" data-close aria-label="Fermer">✕</button>      <div class="modal__cover" id="mCover"></div>
+      <div class="modal__body">
       <div class="modal__top">
         <span class="modal__format" id="mFormat"></span>
         <button class="modal__fav" id="mFav" aria-pressed="false" aria-label="Ajouter aux favoris" title="Favori"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg></button>
@@ -603,8 +629,9 @@
 <!-- ════════ MODALE AUTEUR ════════ -->
 <div class="modal modal--author" id="amodal" aria-hidden="true">
   <div class="modal__backdrop" data-aclose></div>
-  <div class="modal__card" role="dialog" aria-modal="true">      <button class="modal__close" data-aclose aria-label="Fermer">✕</button>
-      <div class="am__hero">
+  <div class="modal__card" role="dialog" aria-modal="true">
+    <button class="modal__close" data-aclose aria-label="Fermer">✕</button>
+    <div class="am__hero">
       <div class="am__ava" id="amAva"></div>
       <div class="am__id">
         <span class="am__k">✦ Fiche auteur 360°</span>
@@ -636,6 +663,7 @@
     <div class="am__block">
       <h5 class="am__h">Bibliographie complète <span class="am__live-pill">✦ live</span></h5>
       <p class="am__live-note" id="amLiveNote" aria-live="polite"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg><span>Interrogation de Wikipédia, Open Library & Google Books…</span></p>
+      <button class="am__live-more" id="amLiveRetry" type="button" hidden>Réessayer la recherche live</button>
       <div class="am__tags am__subjects" id="amSubjects" hidden></div>
       <p class="am__live-note am__live-gauge" id="amApiGauge" hidden></p>
       <ul class="am__works am__works--live" id="amLiveWorks" hidden></ul>
@@ -660,6 +688,15 @@
     </div>
   </div>
 </div>
+
+<!-- Visionneuse partagée pour les couvertures de la bibliographie live -->
+<dialog class="image-view" id="imageView" aria-label="Image agrandie">
+  <div class="image-view__frame">
+    <button class="image-view__close" type="button" data-image-close aria-label="Fermer l’image">✕</button>
+    <img id="imageViewImg" alt="">
+    <p id="imageViewCap"></p>
+  </div>
+</dialog>
 
 <script src="data.js"></script>
 <script src="store.js"></script>
