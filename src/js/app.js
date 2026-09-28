@@ -1051,6 +1051,8 @@
   let editingId = null;
   let reviewTimer = 0;
   let lastSavedReview = "";
+  let pickedCover = "";      // couverture choisie via la recherche de fiche
+  let resetLookup = () => {};
   function initForm() {
     const sw = $("#swatches"), colorInput = $("#colorInput");
     const form = $("#form");
@@ -1075,6 +1077,7 @@
 
     form.addEventListener("reset", () => {
       editingId = null;
+      resetLookup();
       $("#add .section-title").innerHTML = "Ajouter un <em>ouvrage</em>";
       form.querySelector('[type="submit"] span').textContent = "Ajouter à la bibliothèque";
       form.querySelector('[type="reset"] span').textContent = "Effacer";
@@ -1128,6 +1131,8 @@
         addedAt: current?.addedAt || today,
         finishedAt: status === "Terminé" ? (current?.finishedAt || today) : null
       };
+      /* La couverture retenue à la recherche passe avant les API. */
+      if (pickedCover) Covers.prime(item, pickedCover);
       const previousItems = items;
       const previousActivity = { ...db.activity };
       if (status === "Terminé" && current?.status !== "Terminé") logSession(2);
@@ -1147,6 +1152,153 @@
       form.reset();
       setTimeout(() => goTo("collection"), 550);
     });
+
+    initLookup(form);
+  }
+
+  /* ═══════════ RECHERCHE DE FICHE ═══════════
+     Les BD et les comics n'ont pas les mêmes bases : Google Books,
+     Open Library et Wikipédia pour l'éditorial, AniList, Jikan et
+     MangaDex pour les mangas. Toutes ces sources sont publiques et
+     sans clé — aucun compte, aucune donnée envoyée ailleurs que le
+     titre recherche. Cliquer sur une fiche remplit le formulaire. */
+  function initLookup(form) {
+    const box = $("#lookup"), q = $("#lookupQ"),
+          res = $("#lookupResults"), picked = $("#lookupPicked");
+    if (!box || !q || !res || !picked) return;
+
+    let list = [];   // fiches proposées pour la requête courante
+    let seq = 0;
+    let timer = 0;
+
+    const clearPicked = () => {
+      pickedCover = "";
+      picked.hidden = true;
+      picked.innerHTML = "";
+    };
+
+    const paint = (found, searched) => {
+      list = found || [];
+      if (!list.length) {
+        res.hidden = !searched;
+        res.innerHTML = searched
+          ? `<p class="lookup__note">${ic("alert")} Aucune fiche trouvée pour « ${esc(searched)} ». Saisis les informations à la main, ou réessaie avec le titre original.</p>`
+          : "";
+        return;
+      }
+      res.hidden = false;
+      res.innerHTML = list.map((c, i) => {
+        const cover = safeImageUrl(c.cover);
+        const thumb = cover
+          ? `<span class="lookup__thumb"><img src="${esc(cover)}" alt="" loading="lazy" decoding="async"></span>`
+          : `<span class="lookup__thumb">${esc((c.title || "?").slice(0, 14))}</span>`;
+        const meta = [c.author, c.year || "",
+          c.volumes ? `${c.volumes} tomes` : (c.pages ? `${c.pages} pages` : "")].filter(Boolean);
+        const tags = [c.format, ...(c.sources || [c.source])].filter(Boolean);
+        return `<button type="button" class="lookup__card" data-pick="${i}">${thumb}` +
+          `<span><span class="lookup__t">${esc(c.title)}</span>` +
+          `<span class="lookup__m">${esc(meta.join(" · "))}</span>` +
+          `<span class="lookup__tags">${tags.map(t =>
+            `<span class="lookup__tag${t === c.format ? " lookup__tag--fmt" : ""}">${esc(t)}</span>`).join("")}</span>` +
+          `</span></button>`;
+      }).join("");
+      $$(".lookup__thumb img", res).forEach(img =>
+        img.addEventListener("error", () => img.remove(), { once: true }));
+    };
+
+    const fill = c => {
+      if (!c) return;
+      const needle = q.value.trim().toLowerCase();
+      /* Jamais d'écrasement : un champ déjà rempli à la main est respecté.
+         « intact » = vide, ou encore à sa valeur par défaut. */
+      const set = (name, value, mode) => {
+        if (value === "" || value == null) return;
+        const el = form.elements.namedItem(name);
+        if (!el) return;
+        const cur = String(el.value || "").trim();
+        const intact = mode === "query" ? (!cur || cur.toLowerCase() === needle)
+                                        : (!cur || cur === el.defaultValue);
+        if (intact) el.value = value;
+      };
+      set("title", c.title, "query");
+      set("author", c.author, "query");
+      set("year", c.year || "", "default");
+      set("volumes", c.volumes ? Math.min(9999, Math.max(1, c.volumes)) : "", "default");
+      set("desc", c.desc, "query");
+
+      const format = form.elements.namedItem("format");
+      if (c.format && [...format.options].some(o => o.value === c.format)) format.value = c.format;
+
+      const cover = safeImageUrl(c.cover);
+      clearPicked();
+      if (cover) {
+        pickedCover = cover;
+        picked.hidden = false;
+        picked.innerHTML =
+          `<img src="${esc(cover)}" alt="" loading="lazy" decoding="async">` +
+          `<span>Couverture retenue — <b>${esc((c.sources || [c.source]).join(" + "))}</b></span>` +
+          `<button type="button" aria-label="Retirer la couverture retenue">✕</button>`;
+        $$("img", picked).forEach(img =>
+          img.addEventListener("error", () => img.remove(), { once: true }));
+      }
+      paint([], null);
+      const from = (c.sources || [c.source]).join(" + ");
+      showToast(ic("check") + ` Fiche « ${esc(c.title)} » remplie depuis ${esc(from)}.`);
+    };
+
+    const run = async raw => {
+      const text = String(raw || "").trim();
+      if (text.length < 3) return;
+      const mine = ++seq;
+      box.classList.add("is-loading");
+      const warm = Sources.cached(text);          // cache : réponse immédiate
+      if (warm) paint(warm, null);
+      let found = [];
+      try { found = await Sources.search(text); }
+      catch (err) { found = []; }
+      if (mine !== seq) return;                   // une frappe plus récente a pris la main
+      box.classList.remove("is-loading");
+      paint(found, text);
+    };
+
+    q.addEventListener("input", () => {
+      clearTimeout(timer);
+      const text = q.value.trim();
+      if (text.length < 3) {
+        seq++;
+        box.classList.remove("is-loading");
+        paint([], null);
+        return;
+      }
+      timer = setTimeout(() => run(text), 550);
+    });
+
+    q.addEventListener("keydown", e => {
+      if (e.key === "Escape") { clearTimeout(timer); seq++; paint([], null); return; }
+      if (e.key !== "Enter") return;
+      const first = res.querySelector(".lookup__card");
+      if (!first) return;                         // sans fiche, Entrée envoie le formulaire
+      e.preventDefault();
+      fill(list[Number(first.dataset.pick)]);
+    });
+
+    res.addEventListener("click", e => {
+      const card = e.target.closest(".lookup__card");
+      if (card) fill(list[Number(card.dataset.pick)]);
+    });
+
+    picked.addEventListener("click", e => {
+      if (e.target.closest("button")) clearPicked();
+    });
+
+    resetLookup = () => {
+      clearTimeout(timer);
+      seq++;
+      box.classList.remove("is-loading");
+      q.value = "";
+      paint([], null);
+      clearPicked();
+    };
   }
 
   let toastTimer;
@@ -2003,6 +2155,7 @@
     $("#mEdit").addEventListener("click", () => {
       const it = items.find(x => x.id === state.openId); if (!it) return;
       editingId = it.id;
+      resetLookup();
       const form = $("#form");
       for (const key of ["title", "author", "format", "year", "volumes", "read", "status", "rating", "color", "desc"])
         form.elements.namedItem(key).value = it[key];

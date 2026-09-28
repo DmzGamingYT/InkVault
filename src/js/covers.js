@@ -1,7 +1,7 @@
 /* ══════════════════════════════════════════════
    INKVAULT — Résolution des couvertures
    Manga / Webtoon : AniList  →  Jikan (MyAnimeList)  →  Open Library
-   Comic / Graphic  : Google Books  →  Open Library
+   Comic / Graphic  : ISBN  →  Google Books  →  Open Library  →  Wikipédia
    Fallback final   : couverture stylisée générée
    ══════════════════════════════════════════════ */
 
@@ -252,14 +252,48 @@ const Covers = (() => {
     return `https://covers.openlibrary.org/b/id/${best.cover_i}-L.jpg`;
   }
 
+  /* ══════════ Source : Wikipédia (BD, séries, mangas) ══════════
+     Dernier recours du chemin BD : la vignette d'un article de Wikipédia
+     est très souvent la couverture de l'album. Sans clé — `origin=*`
+     est ce qui rend l'API MediaWiki interrogeable depuis le navigateur. */
+  /* La vignette de tête d'un article est souvent la couverture — mais parfois
+     un logo ou une carte : la couverture stylisée reste alors préférable. */
+  const RE_NOT_A_COVER = /(^|[-_ ])(logo|map|signature|banner|icon|flag|plan)([-_.]|$)/i;
+
+  async function fromWikipedia(item) {
+    const base = lang => "https://" + lang + ".wikipedia.org/w/api.php?action=query&format=json" +
+      "&formatversion=2&origin=*&generator=search&gsrnamespace=0&gsrlimit=5" +
+      "&prop=pageimages&piprop=thumbnail&pithumbsize=300&gsrsearch=" + encodeURIComponent(item.title);
+
+    for (const lang of ["fr", "en"]) {
+      if (dead.has("Wikipédia " + lang)) continue;
+      try {
+        const d = await getJSON(base(lang));
+        let best = null, bestScore = 0;
+        for (const p of ((((d || {}).query) || {}).pages) || []) {
+          const src = p.thumbnail && p.thumbnail.source;
+          if (!src || RE_NOT_A_COVER.test(src)) continue;
+          const s = titleScore(item.title, p.title);
+          if (s > bestScore) { bestScore = s; best = src; }
+        }
+        if (best && bestScore >= 70) return best;
+      } catch (err) {
+        const msg = String(err && err.message);
+        if (/\bHTTP (?:429|5\d\d)\b|aborted|Failed|Network/i.test(msg) || err?.name === "AbortError")
+          dead.add("Wikipédia " + lang);
+      }
+    }
+    return null;
+  }
+
   /* ══════════ Plans de recherche ══════════ */
   const LANES = { media: null, print: null };   // 2 files parallèles
 
   const PLANS = {
     "Manga":          { lane: "media", delay: 700, steps: [["AniList", fromAniList], ["Jikan", fromJikan], ["OpenLibrary", fromOpenLibrary]] },
     "Webtoon":        { lane: "media", delay: 700, steps: [["AniList", fromAniList], ["Jikan", fromJikan], ["OpenLibrary", fromOpenLibrary]] },
-    "Comic":          { lane: "print", delay: 300, steps: [["Isbn", fromIsbn], ["GoogleBooks", fromGoogle], ["OpenLibrary", fromOpenLibrary]] },
-    "Graphic Novel":  { lane: "print", delay: 300, steps: [["Isbn", fromIsbn], ["GoogleBooks", fromGoogle], ["OpenLibrary", fromOpenLibrary]] }
+    "Comic":          { lane: "print", delay: 300, steps: [["Isbn", fromIsbn], ["GoogleBooks", fromGoogle], ["OpenLibrary", fromOpenLibrary], ["Wikipédia", fromWikipedia], ["Wikipedia", fromWikipedia]] },
+    "Graphic Novel":  { lane: "print", delay: 300, steps: [["Isbn", fromIsbn], ["GoogleBooks", fromGoogle], ["OpenLibrary", fromOpenLibrary], ["Wikipédia", fromWikipedia], ["Wikipedia", fromWikipedia]] }
   };
 
   function makeLane() {
@@ -303,15 +337,29 @@ const Covers = (() => {
 
     const plan = PLANS[item.format] || PLANS["Comic"];
     const pending = LANES[plan.lane](() => lookup(item), plan.delay).then(url => {
-      memory[key] = url || null;
-      if (url) { persisted[key] = url; save(); }
-      return url || null;
+      if (!pinned.has(key)) {
+        memory[key] = url || null;
+        if (url) { persisted[key] = url; save(); }
+      }
+      return pinned.has(key) ? memory[key] : (url || null);
     }).finally(() => inFlight.delete(key));
     inFlight.set(key, pending);
     return pending;
   }
 
   function warmAll(list) { list.forEach(resolve); }
+
+  /* Couverture choisie à la main (fiche Imports) : on la fige pour cet
+     ouvrage, et une recherche déjà en cours ne peut plus l'écraser. */
+  const pinned = new Set();
+  function prime(item, url) {
+    if (!item || !url) return;
+    const key = keyOf(item);
+    memory[key] = url;
+    persisted[key] = url;
+    pinned.add(key);
+    save();
+  }
 
   /* ══════════ Injection dans le DOM ══════════ */
   function paint(container, item, cls = "cover-img") {
@@ -345,5 +393,5 @@ const Covers = (() => {
     return img;
   }
 
-  return { resolve, warmAll, paint, similarity, get dead() { return [...dead]; } };
+  return { resolve, warmAll, paint, similarity, prime, get dead() { return [...dead]; } };
 })();

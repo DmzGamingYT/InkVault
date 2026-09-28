@@ -34,6 +34,7 @@ InkVault rassemble votre collection et votre suivi de lecture dans une interface
 
 - Affichage en **grille ou liste**, recherche instantanée et filtres par format ou statut.
 - Suivi des **tomes lus**, de la progression, des notes, des favoris et des critiques.
+- **Recherche de fiche à l’ajout** : un titre saisi interroge AniList, Jikan, MangaDex, Google Books, Open Library et Wikipédia, puis un clic remplit l’auteur, l’année, les tomes, le format, la description et la couverture.
 - Ajout et retrait rapides depuis les fiches ou les bibliographies d’auteurs.
 - Variantes d’édition persistantes et galerie de couvertures avec visionneuse.
 - Sauvegarde complète en **JSON** et export de la collection en **Markdown ou PDF**.
@@ -122,11 +123,11 @@ L’AppImage vérifie les nouvelles versions au lancement, puis toutes les six h
 
 | Reste local | Peut utiliser Internet |
 |---|---|
-| Bibliothèque, notes, progression, favoris, variantes et calculs de recommandation. | Couvertures, biographies, bibliographies, ordres de lecture enrichis, polices et vérification des mises à jour. |
+| Bibliothèque, notes, progression, favoris, variantes et calculs de recommandation. | Fiches d’ouvrage, couvertures, biographies, bibliographies, ordres de lecture enrichis, polices et vérification des mises à jour. |
 
-InkVault ne nécessite aucun compte et n’intègre pas de télémétrie applicative. Les recherches en ligne peuvent transmettre les titres ou auteurs demandés, ainsi que les informations réseau habituelles, aux services concernés : Wikipédia, Open Library, AniList, Google Books, MangaDex, Jikan, Google Fonts et GitHub.
+InkVault ne nécessite aucun compte et n’intègre pas de télémétrie applicative. Les recherches en ligne peuvent transmettre les titres ou auteurs demandés, ainsi que les informations réseau habituelles, aux services concernés : Wikipédia (français et anglais), Open Library, AniList, Google Books, MangaDex, Jikan, Google Fonts et GitHub.
 
-Les parcours enrichis sont mis en cache pendant 6 heures et les fiches auteurs pendant 7 jours. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas, avec attribution dans l’interface.
+Les parcours enrichis et la recherche de fiche sont mis en cache pendant 6 heures et les fiches auteurs pendant 7 jours. MangaDex est utilisé uniquement pour les métadonnées et les couvertures de mangas, avec attribution dans l’interface.
 
 ## 🛠 Développement
 
@@ -178,6 +179,7 @@ InkVault/
 │       ├── app.js          # contrôleur de l’interface
 │       ├── ai.js           # recommandations et enrichissements
 │       ├── covers.js       # résolution des couvertures
+│       ├── sources.js      # recherche de fiches d’ouvrage
 │       ├── data.js         # données de démonstration
 │       └── store.js        # validation et persistance locale
 ├── electron/

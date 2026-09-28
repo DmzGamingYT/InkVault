@@ -17,6 +17,8 @@
 <link rel="preconnect" href="https://covers.openlibrary.org">
 <link rel="preconnect" href="https://www.googleapis.com">
 <link rel="preconnect" href="https://en.wikipedia.org">
+<link rel="preconnect" href="https://fr.wikipedia.org">
+<link rel="preconnect" href="https://upload.wikimedia.org">
 <link rel="preconnect" href="https://api.mangadex.org">
 <link rel="preconnect" href="https://uploads.mangadex.org">
 <link rel="preconnect" href="https://graphql.anilist.co">
@@ -470,6 +472,20 @@
   </div>
 
   <form class="form" id="form" novalidate>
+    <!-- Recherche de fiche : BD, comics, mangas et webtoons (sources publiques, sans compte) -->
+    <div class="lookup" id="lookup">
+      <label class="field">
+        <span>Rechercher une fiche <small class="field__hint">Optionnelle · BD, comics, mangas, webtoons</small></span>
+        <span class="lookup__box">
+          <input type="search" id="lookupQ" autocomplete="off" spellcheck="false"
+                 placeholder="Tondut lutine, Akira, Watchmen, Berserk…" aria-label="Rechercher une fiche d'ouvrage" />
+          <span class="lookup__spin" aria-hidden="true"></span>
+        </span>
+      </label>
+      <div class="lookup__picked" id="lookupPicked" hidden></div>
+      <div class="lookup__results" id="lookupResults" hidden></div>
+    </div>
+
     <div class="form__row">
       <label class="field">
         <span>Titre *</span>
@@ -732,6 +748,7 @@
 <script src="js/data.js"></script>
 <script src="js/store.js"></script>
 <script src="js/covers.js"></script>
+<script src="js/sources.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/app.js"></script>
 </body>
